@@ -1,30 +1,43 @@
 "use client";
 
-import { useCallback, useState } from "react";
-import { Navbar } from "./Navbar";
+import { useCallback, useEffect, useState } from "react";
+import { Navbar, type ViewMode } from "./Navbar";
 import { Hero } from "./Hero";
 import { StudentView, type ParkingInfo } from "./StudentView";
 import { AdminView } from "./AdminView";
 import { DriverView } from "./DriverView";
+import { ReturnTripView } from "./ReturnTripView";
 import { StopsModal } from "./StopsModal";
 import { LoginModals } from "./LoginModals";
-import { InfoModal, ComingSoonContent } from "./InfoModal";
+import { LiveTrackingModal } from "./LiveTrackingModal";
+import { DriverGpsPortal } from "./DriverGpsPortal";
+import { AttendanceDashboard } from "./AttendanceDashboard";
+import { SOSDashboard } from "./SOSDashboard";
+import { NotificationDashboard } from "./NotificationDashboard";
+import { FaceRegister } from "./FaceRegister";
+import { Chatbot } from "./Chatbot";
 import { routes as initialRoutes, parseTime } from "@/lib/ritians/data";
 import type { Route } from "@/lib/ritians/data";
 import { useAuth } from "@/lib/ritians/auth";
-import { useToast } from "@/lib/ritians/toast";
 
-type Tab = "student" | "admin" | "driver";
+type Tab = "student" | "admin" | "driver" | "return";
 type ModalWhich = "admin" | "driver" | null;
-type InfoModalKind = "tracking" | "driverGps" | "faceRegister" | "attendance" | "sos" | "notification" | null;
+type FullPage =
+  | "tracking"      // live tracking (full page)
+  | "driverGps"    // driver GPS portal (full page)
+  | "faceRegister"
+  | "attendance"
+  | "sos"
+  | "notification"
+  | null;
 
 const PARKING_KEY = "ritians_driver_parking_v1";
 
 export function Dashboard() {
   const { adminUnlocked, driverUnlocked } = useAuth();
-  const { show } = useToast();
 
   const [tab, setTab] = useState<Tab>("student");
+  const [viewMode, setViewMode] = useState<ViewMode>("desktop");
   const [routes, setRoutes] = useState<Route[]>(initialRoutes);
   const [parking, setParking] = useState<Record<string, ParkingInfo>>(() => {
     if (typeof window === "undefined") return {};
@@ -36,8 +49,20 @@ export function Dashboard() {
     }
   });
   const [stopsRouteNo, setStopsRouteNo] = useState<string | null>(null);
+  const [stopsTrip, setStopsTrip] = useState<"morning" | "afternoon">("morning");
   const [modalWhich, setModalWhich] = useState<ModalWhich>(null);
-  const [infoKind, setInfoKind] = useState<InfoModalKind>(null);
+  const [trackingOpen, setTrackingOpen] = useState(false);
+  const [fullPage, setFullPage] = useState<FullPage>(null);
+
+  // Apply mobile view class to body
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    if (viewMode === "mobile") {
+      document.body.classList.add("rt-force-mobile");
+    } else {
+      document.body.classList.remove("rt-force-mobile");
+    }
+  }, [viewMode]);
 
   const persistParking = useCallback((p: Record<string, ParkingInfo>) => {
     setParking(p);
@@ -54,6 +79,7 @@ export function Dashboard() {
       return;
     }
     setTab(t);
+    setFullPage(null);
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -70,7 +96,6 @@ export function Dashboard() {
     setRoutes((rs) => {
       const next = [...rs];
       next.splice(idx, 1);
-      // re-number
       return next.map((r, i) => ({ ...r, no: i + 1 }));
     });
 
@@ -94,13 +119,102 @@ export function Dashboard() {
     return d.getDate() === n.getDate() && d.getMonth() === n.getMonth() && d.getFullYear() === n.getFullYear();
   }).length;
 
+  const openStops = (routeNo: string, trip: "morning" | "afternoon" = "morning") => {
+    setStopsRouteNo(routeNo);
+    setStopsTrip(trip);
+  };
+
+  // Render full-page views if active
+  if (fullPage === "driverGps") {
+    return (
+      <>
+        <Navbar
+          activeTab={tab}
+          onTabClick={(t) => { setFullPage(null); setTab(t); }}
+          onOpenTracking={() => setTrackingOpen(true)}
+          onOpenDriverGps={() => setFullPage("driverGps")}
+          viewMode={viewMode}
+          onToggleView={() => setViewMode((v) => (v === "desktop" ? "mobile" : "desktop"))}
+        />
+        <DriverGpsPortal onBack={() => setFullPage(null)} />
+        <Chatbot />
+      </>
+    );
+  }
+  if (fullPage === "attendance") {
+    return (
+      <>
+        <Navbar
+          activeTab={tab}
+          onTabClick={(t) => { setFullPage(null); setTab(t); }}
+          onOpenTracking={() => setTrackingOpen(true)}
+          onOpenDriverGps={() => setFullPage("driverGps")}
+          viewMode={viewMode}
+          onToggleView={() => setViewMode((v) => (v === "desktop" ? "mobile" : "desktop"))}
+        />
+        <AttendanceDashboard onBack={() => setFullPage(null)} />
+        <Chatbot />
+      </>
+    );
+  }
+  if (fullPage === "sos") {
+    return (
+      <>
+        <Navbar
+          activeTab={tab}
+          onTabClick={(t) => { setFullPage(null); setTab(t); }}
+          onOpenTracking={() => setTrackingOpen(true)}
+          onOpenDriverGps={() => setFullPage("driverGps")}
+          viewMode={viewMode}
+          onToggleView={() => setViewMode((v) => (v === "desktop" ? "mobile" : "desktop"))}
+        />
+        <SOSDashboard onBack={() => setFullPage(null)} />
+        <Chatbot />
+      </>
+    );
+  }
+  if (fullPage === "notification") {
+    return (
+      <>
+        <Navbar
+          activeTab={tab}
+          onTabClick={(t) => { setFullPage(null); setTab(t); }}
+          onOpenTracking={() => setTrackingOpen(true)}
+          onOpenDriverGps={() => setFullPage("driverGps")}
+          viewMode={viewMode}
+          onToggleView={() => setViewMode((v) => (v === "desktop" ? "mobile" : "desktop"))}
+        />
+        <NotificationDashboard onBack={() => setFullPage(null)} />
+        <Chatbot />
+      </>
+    );
+  }
+  if (fullPage === "faceRegister") {
+    return (
+      <>
+        <Navbar
+          activeTab={tab}
+          onTabClick={(t) => { setFullPage(null); setTab(t); }}
+          onOpenTracking={() => setTrackingOpen(true)}
+          onOpenDriverGps={() => setFullPage("driverGps")}
+          viewMode={viewMode}
+          onToggleView={() => setViewMode((v) => (v === "desktop" ? "mobile" : "desktop"))}
+        />
+        <FaceRegister onBack={() => setFullPage(null)} />
+        <Chatbot />
+      </>
+    );
+  }
+
   return (
     <>
       <Navbar
         activeTab={tab}
         onTabClick={onTabClick}
-        onOpenTracking={() => setInfoKind("tracking")}
-        onOpenDriverGps={() => setInfoKind("driverGps")}
+        onOpenTracking={() => setTrackingOpen(true)}
+        onOpenDriverGps={() => setFullPage("driverGps")}
+        viewMode={viewMode}
+        onToggleView={() => setViewMode((v) => (v === "desktop" ? "mobile" : "desktop"))}
       />
 
       <Hero
@@ -108,17 +222,21 @@ export function Dashboard() {
         earliest={stats.earliest}
         latest={stats.latest}
         parkingCount={parkingCount}
-        onLiveTracking={() => setInfoKind("tracking")}
+        onLiveTracking={() => setTrackingOpen(true)}
         onDriverLogin={() => onTabClick("driver")}
-        onFaceRegister={() => setInfoKind("faceRegister")}
+        onFaceRegister={() => setFullPage("faceRegister")}
       />
 
       {tab === "student" && (
         <StudentView
           routes={routes}
           parking={parking}
-          onOpenStops={(rno) => setStopsRouteNo(rno)}
+          onOpenStops={(rno) => openStops(rno, "morning")}
         />
+      )}
+
+      {tab === "return" && (
+        <ReturnTripView onOpenRoute={(rno) => openStops(rno, "afternoon")} />
       )}
 
       {tab === "admin" && adminUnlocked && (
@@ -128,7 +246,9 @@ export function Dashboard() {
           onUpdateRoute={onUpdateRoute}
           onDeleteRoute={onDeleteRoute}
           onBack={() => setTab("student")}
-          onOpenQuickLink={(k) => setInfoKind(k)}
+          onOpenQuickLink={(k) =>
+            setFullPage(k === "attendance" ? "attendance" : k === "sos" ? "sos" : "notification")
+          }
         />
       )}
 
@@ -138,78 +258,26 @@ export function Dashboard() {
           parking={parking}
           onPublish={onPublishParking}
           onBack={() => setTab("student")}
-          onOpenDriverGps={() => setInfoKind("driverGps")}
+          onOpenDriverGps={() => setFullPage("driverGps")}
         />
       )}
 
-      {/* Stops modal */}
       <StopsModal
         routeNo={stopsRouteNo}
         routes={routes}
         onClose={() => setStopsRouteNo(null)}
+        initialTrip={stopsTrip}
       />
 
-      {/* Login modals (admin/driver) */}
       <LoginModals
         which={modalWhich}
         onClose={() => setModalWhich(null)}
         onSuccess={onModalSuccess}
       />
 
-      {/* Info / coming-soon modals */}
-      <InfoModal
-        open={infoKind === "tracking"}
-        title="Live Tracking"
-        icon="fas fa-satellite-dish"
-        subtitle="Real-time GPS tracking of college buses"
-        onClose={() => setInfoKind(null)}
-        body={<ComingSoonContent feature="Live GPS Tracking" />}
-      />
-      <InfoModal
-        open={infoKind === "driverGps"}
-        title="Driver GPS Portal"
-        icon="fas fa-location-arrow"
-        iconColor="#F59E0B"
-        subtitle="Share your live location with students on campus"
-        onClose={() => setInfoKind(null)}
-        body={<ComingSoonContent feature="Driver GPS Portal" />}
-      />
-      <InfoModal
-        open={infoKind === "faceRegister"}
-        title="Face Registration"
-        icon="fas fa-face-viewfinder"
-        iconColor="#A78BFA"
-        subtitle="Biometric attendance registration"
-        onClose={() => setInfoKind(null)}
-        body={<ComingSoonContent feature="Face Registration" />}
-      />
-      <InfoModal
-        open={infoKind === "attendance"}
-        title="Attendance Dashboard"
-        icon="fas fa-chart-bar"
-        iconColor="#22D3EE"
-        subtitle="View, filter &amp; export student attendance records"
-        onClose={() => setInfoKind(null)}
-        body={<ComingSoonContent feature="Attendance Dashboard" />}
-      />
-      <InfoModal
-        open={infoKind === "sos"}
-        title="SOS Dashboard"
-        icon="fas fa-bell"
-        iconColor="#FF1F1F"
-        subtitle="Monitor &amp; respond to emergency alerts in real-time"
-        onClose={() => setInfoKind(null)}
-        body={<ComingSoonContent feature="SOS Dashboard" />}
-      />
-      <InfoModal
-        open={infoKind === "notification"}
-        title="Notification Dashboard"
-        icon="fas fa-bullhorn"
-        iconColor="#FBBF24"
-        subtitle="Send bus-specific alerts to students instantly"
-        onClose={() => setInfoKind(null)}
-        body={<ComingSoonContent feature="Notification Dashboard" />}
-      />
+      <LiveTrackingModal open={trackingOpen} onClose={() => setTrackingOpen(false)} />
+
+      <Chatbot />
     </>
   );
 }

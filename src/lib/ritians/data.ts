@@ -1,71 +1,78 @@
 // Ritians Transport — Route & Stops master data
 // Sourced from ritians-tracking.onrender.com (public schedule)
 
+export interface Coord {
+  lat: number;
+  lng: number;
+}
+
 export interface Route {
   no: number;
   routeNo: string;
   routeName: string;
   timing: string;
   start: string;
+  coords: Coord; // main destination coordinates (lat/lng)
 }
 
 export interface Stop {
   stop: string;
   time: string;
+  coords?: Coord; // optional — most stops have approximate coords
 }
 
 export const routes: Route[] = [
-  { no:1,  routeNo:"R01",  routeName:"Ennore",            timing:"Boarding Points", start:"5.50 am" },
-  { no:2,  routeNo:"R01A", routeName:"Tondiarpet",         timing:"Boarding Points", start:"6.17 am" },
-  { no:3,  routeNo:"R01B", routeName:"Kasimedu",           timing:"Boarding Points", start:"6.15 am" },
-  { no:4,  routeNo:"R02",  routeName:"Triplicane",         timing:"Boarding Points", start:"6.20 am" },
-  { no:5,  routeNo:"R03",  routeName:"Choolai",            timing:"Boarding Points", start:"6.20 am" },
-  { no:6,  routeNo:"R03A", routeName:"Collector Nagar",    timing:"Boarding Points", start:"6.50 am" },
-  { no:7,  routeNo:"R03B", routeName:"Water Tank",         timing:"Boarding Points", start:"6.40 am" },
-  { no:8,  routeNo:"R04",  routeName:"East Mogappair",     timing:"Boarding Points", start:"6.30 am" },
-  { no:9,  routeNo:"R05",  routeName:"CIT Nagar",          timing:"Boarding Points", start:"6.10 am" },
-  { no:10, routeNo:"R05A", routeName:"Loyola College",     timing:"Boarding Points", start:"6.40 am" },
-  { no:11, routeNo:"R06",  routeName:"Chinmayanagar",      timing:"Boarding Points", start:"6.10 am" },
-  { no:12, routeNo:"R07",  routeName:"Santhome",           timing:"Boarding Points", start:"6.10 am" },
-  { no:13, routeNo:"R08",  routeName:"Kovilambakkam",      timing:"Boarding Points", start:"6.10 am" },
-  { no:14, routeNo:"R08A", routeName:"Adambakkam",         timing:"Boarding Points", start:"6.30 am" },
-  { no:15, routeNo:"R09",  routeName:"MKB Nagar",          timing:"Boarding Points", start:"6.00 am" },
-  { no:16, routeNo:"R09A", routeName:"Perambur",           timing:"Boarding Points", start:"6.30 am" },
-  { no:17, routeNo:"R10",  routeName:"Thachoor",           timing:"Boarding Points", start:"5.50 am" },
-  { no:18, routeNo:"R11",  routeName:"Chengalpattu",       timing:"Boarding Points", start:"6.00 am" },
-  { no:19, routeNo:"R11A", routeName:"Guduvanchery",       timing:"Boarding Points", start:"6.30 am" },
-  { no:20, routeNo:"R12",  routeName:"Minjur",             timing:"Boarding Points", start:"5.45 am" },
-  { no:21, routeNo:"R13",  routeName:"Vyasarpadi",         timing:"Boarding Points", start:"6.10 am" },
-  { no:22, routeNo:"R13A", routeName:"ICF",                timing:"Boarding Points", start:"6.45 am" },
-  { no:23, routeNo:"R14",  routeName:"Thiruvallur",        timing:"Boarding Points", start:"6.25 am" },
-  { no:24, routeNo:"R14A", routeName:"Kakkalur",           timing:"Boarding Points", start:"6.55 am" },
-  { no:25, routeNo:"R15",  routeName:"Kancheepuram",       timing:"Boarding Points", start:"6.00 am" },
-  { no:26, routeNo:"R15A", routeName:"Orikkai",            timing:"Boarding Points", start:"6.15 am" },
-  { no:27, routeNo:"R16",  routeName:"Neelangkarai",       timing:"Boarding Points", start:"6.10 am" },
-  { no:28, routeNo:"R16A", routeName:"Guindy",             timing:"Boarding Points", start:"6.45 am" },
-  { no:29, routeNo:"R16B", routeName:"Sholinganallur",     timing:"Boarding Points", start:"6.10 am" },
-  { no:30, routeNo:"R17",  routeName:"Valluvarkottam",     timing:"Boarding Points", start:"6.15 am" },
-  { no:31, routeNo:"R17A", routeName:"Valasaravakkam",     timing:"Boarding Points", start:"6.45 am" },
-  { no:32, routeNo:"R18",  routeName:"Pallikaranai",       timing:"Boarding Points", start:"6.15 am" },
-  { no:33, routeNo:"R18A", routeName:"Sembakkam",          timing:"Boarding Points", start:"6.25 am" },
-  { no:34, routeNo:"R18B", routeName:"Kelambakkam",        timing:"Boarding Points", start:"6.00 am" },
-  { no:35, routeNo:"R19",  routeName:"Poombukar",          timing:"Boarding Points", start:"6.10 am" },
-  { no:36, routeNo:"R19A", routeName:"Vinayagapuram",      timing:"Boarding Points", start:"6.45 am" },
-  { no:37, routeNo:"R20",  routeName:"Vepampattu",         timing:"Boarding Points", start:"6.30 am" },
-  { no:38, routeNo:"R21",  routeName:"Ayyapakkam",         timing:"Boarding Points", start:"6.15 am" },
-  { no:39, routeNo:"R22",  routeName:"Thiruthani",         timing:"Boarding Points", start:"5.55 am" },
-  { no:40, routeNo:"R22A", routeName:"SR Gate",            timing:"Boarding Points", start:"6.30 am" },
-  { no:41, routeNo:"R23",  routeName:"K4 Police Station",  timing:"Boarding Points", start:"6.35 am" },
-  { no:42, routeNo:"R24",  routeName:"Arcot",              timing:"Boarding Points", start:"5.25 am" },
-  { no:43, routeNo:"R25",  routeName:"Kallikuppam",        timing:"Boarding Points", start:"6.45 am" },
-  { no:44, routeNo:"R25A", routeName:"Pudur",              timing:"Boarding Points", start:"6.45 am" },
-  { no:45, routeNo:"R26",  routeName:"Andarkuppam",        timing:"Boarding Points", start:"6.35 am" },
-  { no:46, routeNo:"R27",  routeName:"Avadi",              timing:"Boarding Points", start:"6.25 am" },
-  { no:47, routeNo:"R27A", routeName:"Kollumedu",          timing:"Boarding Points", start:"6.30 am" },
-  { no:48, routeNo:"R28",  routeName:"Agaram",             timing:"Boarding Points", start:"6.20 am" },
-  { no:49, routeNo:"R29",  routeName:"Velachery",          timing:"Boarding Points", start:"6.10 am" },
-  { no:50, routeNo:"R29A", routeName:"Pammal",             timing:"Boarding Points", start:"6.35 am" },
-  { no:51, routeNo:"R29B", routeName:"Sivanthangal",       timing:"Boarding Points", start:"7.05 am" },
+  { no:1,  routeNo:"R01",  routeName:"Ennore",            timing:"Boarding Points", start:"5.50 am", coords:{lat:13.2167,lng:80.3} },
+  { no:2,  routeNo:"R01A", routeName:"Tondiarpet",         timing:"Boarding Points", start:"6.17 am", coords:{lat:13.1356,lng:80.2922} },
+  { no:3,  routeNo:"R01B", routeName:"Kasimedu",           timing:"Boarding Points", start:"6.15 am", coords:{lat:13.1189,lng:80.2933} },
+  { no:4,  routeNo:"R02",  routeName:"Triplicane",         timing:"Boarding Points", start:"6.20 am", coords:{lat:13.05,lng:80.276} },
+  { no:5,  routeNo:"R03",  routeName:"Choolai",            timing:"Boarding Points", start:"6.20 am", coords:{lat:13.0836,lng:80.2676} },
+  { no:6,  routeNo:"R03A", routeName:"Collector Nagar",    timing:"Boarding Points", start:"6.50 am", coords:{lat:13.0773,lng:80.2133} },
+  { no:7,  routeNo:"R03B", routeName:"Water Tank",         timing:"Boarding Points", start:"6.40 am", coords:{lat:13.079,lng:80.208} },
+  { no:8,  routeNo:"R04",  routeName:"East Mogappair",     timing:"Boarding Points", start:"6.30 am", coords:{lat:13.0827,lng:80.177} },
+  { no:9,  routeNo:"R05",  routeName:"CIT Nagar",          timing:"Boarding Points", start:"6.10 am", coords:{lat:13.029,lng:80.233} },
+  { no:10, routeNo:"R05A", routeName:"Loyola College",     timing:"Boarding Points", start:"6.40 am", coords:{lat:13.0836,lng:80.221} },
+  { no:11, routeNo:"R06",  routeName:"Chinmayanagar",      timing:"Boarding Points", start:"6.10 am", coords:{lat:13.049,lng:80.19} },
+  { no:12, routeNo:"R07",  routeName:"Santhome",           timing:"Boarding Points", start:"6.10 am", coords:{lat:13.05,lng:80.273} },
+  { no:13, routeNo:"R08",  routeName:"Kovilambakkam",      timing:"Boarding Points", start:"6.10 am", coords:{lat:12.916,lng:80.144} },
+  { no:14, routeNo:"R08A", routeName:"Adambakkam",         timing:"Boarding Points", start:"6.30 am", coords:{lat:12.993,lng:80.207} },
+  { no:15, routeNo:"R09",  routeName:"MKB Nagar",          timing:"Boarding Points", start:"6.00 am", coords:{lat:13.1189,lng:80.247} },
+  { no:16, routeNo:"R09A", routeName:"Perambur",           timing:"Boarding Points", start:"6.30 am", coords:{lat:13.1189,lng:80.233} },
+  { no:17, routeNo:"R10",  routeName:"Thachoor",           timing:"Boarding Points", start:"5.50 am", coords:{lat:13.2889,lng:80.3167} },
+  { no:18, routeNo:"R11",  routeName:"Chengalpattu",       timing:"Boarding Points", start:"6.00 am", coords:{lat:12.69,lng:79.97} },
+  { no:19, routeNo:"R11A", routeName:"Guduvanchery",       timing:"Boarding Points", start:"6.30 am", coords:{lat:12.85,lng:80.03} },
+  { no:20, routeNo:"R12",  routeName:"Minjur",             timing:"Boarding Points", start:"5.45 am", coords:{lat:13.2767,lng:80.25} },
+  { no:21, routeNo:"R13",  routeName:"Vyasarpadi",         timing:"Boarding Points", start:"6.10 am", coords:{lat:13.1189,lng:80.24} },
+  { no:22, routeNo:"R13A", routeName:"ICF",                timing:"Boarding Points", start:"6.45 am", coords:{lat:13.083,lng:80.215} },
+  { no:23, routeNo:"R14",  routeName:"Thiruvallur",        timing:"Boarding Points", start:"6.25 am", coords:{lat:13.13,lng:79.9} },
+  { no:24, routeNo:"R14A", routeName:"Kakkalur",           timing:"Boarding Points", start:"6.55 am", coords:{lat:13.11,lng:79.97} },
+  { no:25, routeNo:"R15",  routeName:"Kancheepuram",       timing:"Boarding Points", start:"6.00 am", coords:{lat:12.838,lng:79.7} },
+  { no:26, routeNo:"R15A", routeName:"Orikkai",            timing:"Boarding Points", start:"6.15 am", coords:{lat:12.83,lng:79.71} },
+  { no:27, routeNo:"R16",  routeName:"Neelangkarai",       timing:"Boarding Points", start:"6.10 am", coords:{lat:12.93,lng:80.25} },
+  { no:28, routeNo:"R16A", routeName:"Guindy",             timing:"Boarding Points", start:"6.45 am", coords:{lat:13.01,lng:80.22} },
+  { no:29, routeNo:"R16B", routeName:"Sholinganallur",     timing:"Boarding Points", start:"6.10 am", coords:{lat:12.89,lng:80.227} },
+  { no:30, routeNo:"R17",  routeName:"Valluvarkottam",     timing:"Boarding Points", start:"6.15 am", coords:{lat:13.05,lng:80.24} },
+  { no:31, routeNo:"R17A", routeName:"Valasaravakkam",     timing:"Boarding Points", start:"6.45 am", coords:{lat:13.049,lng:80.156} },
+  { no:32, routeNo:"R18",  routeName:"Pallikaranai",       timing:"Boarding Points", start:"6.15 am", coords:{lat:12.93,lng:80.21} },
+  { no:33, routeNo:"R18A", routeName:"Sembakkam",          timing:"Boarding Points", start:"6.25 am", coords:{lat:12.92,lng:80.11} },
+  { no:34, routeNo:"R18B", routeName:"Kelambakkam",        timing:"Boarding Points", start:"6.00 am", coords:{lat:12.79,lng:80.2} },
+  { no:35, routeNo:"R19",  routeName:"Poombukar",          timing:"Boarding Points", start:"6.10 am", coords:{lat:13.049,lng:80.11} },
+  { no:36, routeNo:"R19A", routeName:"Vinayagapuram",      timing:"Boarding Points", start:"6.45 am", coords:{lat:13.11,lng:80.23} },
+  { no:37, routeNo:"R20",  routeName:"Vepampattu",         timing:"Boarding Points", start:"6.30 am", coords:{lat:13.083,lng:79.97} },
+  { no:38, routeNo:"R21",  routeName:"Ayyapakkam",         timing:"Boarding Points", start:"6.15 am", coords:{lat:13.077,lng:80.13} },
+  { no:39, routeNo:"R22",  routeName:"Thiruthani",         timing:"Boarding Points", start:"5.55 am", coords:{lat:13.18,lng:79.82} },
+  { no:40, routeNo:"R22A", routeName:"SR Gate",            timing:"Boarding Points", start:"6.30 am", coords:{lat:13.27,lng:79.9} },
+  { no:41, routeNo:"R23",  routeName:"K4 Police Station",  timing:"Boarding Points", start:"6.35 am", coords:{lat:13.085,lng:80.22} },
+  { no:42, routeNo:"R24",  routeName:"Arcot",              timing:"Boarding Points", start:"5.25 am", coords:{lat:12.91,lng:79.33} },
+  { no:43, routeNo:"R25",  routeName:"Kallikuppam",        timing:"Boarding Points", start:"6.45 am", coords:{lat:13.077,lng:80.13} },
+  { no:44, routeNo:"R25A", routeName:"Pudur",              timing:"Boarding Points", start:"6.45 am", coords:{lat:13.08,lng:80.13} },
+  { no:45, routeNo:"R26",  routeName:"Andarkuppam",        timing:"Boarding Points", start:"6.35 am", coords:{lat:13.09,lng:80.15} },
+  { no:46, routeNo:"R27",  routeName:"Avadi",              timing:"Boarding Points", start:"6.25 am", coords:{lat:13.11,lng:80.11} },
+  { no:47, routeNo:"R27A", routeName:"Kollumedu",          timing:"Boarding Points", start:"6.30 am", coords:{lat:13.14,lng:80.08} },
+  { no:48, routeNo:"R28",  routeName:"Agaram",             timing:"Boarding Points", start:"6.20 am", coords:{lat:13.08,lng:80.22} },
+  { no:49, routeNo:"R29",  routeName:"Velachery",          timing:"Boarding Points", start:"6.10 am", coords:{lat:12.98,lng:80.22} },
+  { no:50, routeNo:"R29A", routeName:"Pammal",             timing:"Boarding Points", start:"6.35 am", coords:{lat:12.97,lng:80.17} },
+  { no:51, routeNo:"R29B", routeName:"Sivanthangal",       timing:"Boarding Points", start:"7.05 am", coords:{lat:12.94,lng:80.11} },
 ];
 
 export const routeStops: Record<string, Stop[]> = {
@@ -160,4 +167,71 @@ export function isToday(ts: number): boolean {
   const d = new Date(ts);
   const n = new Date();
   return d.getDate() === n.getDate() && d.getMonth() === n.getMonth() && d.getFullYear() === n.getFullYear();
+}
+
+// ── RIT Campus coordinates (Kuthambakkam, Chennai) ──
+export const RIT_CAMPUS_COORDS: Coord = { lat: 13.0397, lng: 80.0740 };
+
+// ── Afternoon departure time from college ──
+export const AFTERNOON_DEPARTURE = "3.40 pm"; // 15:40 — buses leave RIT Campus
+export const AFTERNOON_DEPARTURE_MIN = 15 * 60 + 40; // 940 minutes from midnight
+export const MORNING_ARRIVAL_MIN = 7 * 60 + 40; // 460 — buses arrive RIT at 7.40 am
+
+/**
+ * Convert minutes-from-midnight → "H.MM am/pm" string.
+ */
+export function formatTime(min: number): string {
+  if (min < 0) min += 24 * 60;
+  if (min >= 24 * 60) min -= 24 * 60;
+  let hr = Math.floor(min / 60);
+  const mi = min % 60;
+  const suffix = hr >= 12 ? "pm" : "am";
+  let h12 = hr % 12;
+  if (h12 === 0) h12 = 12;
+  return `${h12}.${mi.toString().padStart(2, "0")} ${suffix}`;
+}
+
+/**
+ * Calculate the afternoon return-trip schedule for a route.
+ *
+ * Morning: bus starts at stop[0] at `route.start`, arrives RIT Campus at 7.40 am.
+ * Afternoon: bus departs RIT Campus at 3.40 pm, then visits each prior stop in REVERSE.
+ *
+ * For each reversed stop, the afternoon arrival time =
+ *   3.40 pm + (7.40 am − morning_time_at_that_stop)
+ *
+ * Example: R01 Lift Gate morning = 5.50 am → afternoon arrival =
+ *   3.40 pm + (7.40 am − 5.50 am) = 3.40 pm + 1h50m = 5.30 pm
+ */
+export function getReturnTrip(routeNo: string): Stop[] {
+  const morning = routeStops[routeNo];
+  if (!morning || morning.length === 0) return [];
+  // Reverse the list (so RIT Campus becomes first), then compute afternoon times.
+  // Note: morning list already ends at "RIT Campus" at 7.40 am.
+  const reversed = [...morning].reverse();
+  return reversed.map((s) => {
+    const mMin = parseTime(s.time);
+    const offset = MORNING_ARRIVAL_MIN - mMin; // how long from this stop → RIT (morning)
+    const afternoon = AFTERNOON_DEPARTURE_MIN + offset;
+    return { stop: s.stop, time: formatTime(afternoon), coords: s.coords };
+  });
+}
+
+/**
+ * Total afternoon trip duration (minutes) for a route.
+ */
+export function getReturnTripDuration(routeNo: string): number {
+  const morning = routeStops[routeNo];
+  if (!morning || morning.length === 0) return 0;
+  const firstStop = morning[0];
+  return MORNING_ARRIVAL_MIN - parseTime(firstStop.time);
+}
+
+/**
+ * Afternoon arrival time at the last stop (the route's main destination).
+ */
+export function getReturnArrival(routeNo: string): string {
+  const rt = getReturnTrip(routeNo);
+  if (!rt.length) return "—";
+  return rt[rt.length - 1].time;
 }
