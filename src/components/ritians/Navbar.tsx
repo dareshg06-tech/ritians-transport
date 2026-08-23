@@ -1,0 +1,78 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useAuth } from "@/lib/ritians/auth";
+
+interface NavbarProps {
+  activeTab: "student" | "admin" | "driver";
+  onTabClick: (tab: "student" | "admin" | "driver") => void;
+  onOpenTracking: () => void;
+  onOpenDriverGps: () => void;
+}
+
+export function Navbar({ activeTab, onTabClick, onOpenTracking, onOpenDriverGps }: NavbarProps) {
+  const { session, logout } = useAuth();
+  const [clock, setClock] = useState("--:--:--");
+
+  useEffect(() => {
+    const tick = () => {
+      const n = new Date();
+      setClock(
+        n.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+      );
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const avatarInitial = (session?.displayName || "S").charAt(0).toUpperCase();
+
+  return (
+    <header className="rt-nav">
+      <div className="rt-nav-brand">
+        <div className="rt-nav-logo"><i className="fas fa-bus" /></div>
+        <div>
+          <div className="rt-nav-title">RITIANS TRANSPORT</div>
+          <div className="rt-nav-sub">RIT Chennai — Route Management Portal</div>
+        </div>
+      </div>
+      <div className="rt-nav-right">
+        <div className="rt-tab-bar">
+          <button
+            className={`rt-tab-btn ${activeTab === "student" ? "active" : ""}`}
+            onClick={() => onTabClick("student")}
+          >
+            <i className="fas fa-user-graduate" /><span>Student</span>
+          </button>
+          <button
+            className={`rt-tab-btn ${activeTab === "admin" ? "active" : ""}`}
+            onClick={() => onTabClick("admin")}
+          >
+            <i className="fas fa-user-shield" /><span>Admin</span>
+          </button>
+          <button
+            className={`rt-tab-btn ${activeTab === "driver" ? "active" : ""}`}
+            onClick={() => onTabClick("driver")}
+          >
+            <i className="fas fa-id-card" /><span>Driver</span>
+          </button>
+          <button className="rt-tab-btn" onClick={onOpenTracking}>
+            <i className="fas fa-satellite-dish" /><span>Live Tracking</span>
+          </button>
+          <button className="rt-tab-btn driver-ext" onClick={onOpenDriverGps} title="Open Driver GPS Portal">
+            <i className="fas fa-location-arrow" /><span>Driver GPS</span>
+          </button>
+        </div>
+        <div className="rt-clock">{clock}</div>
+        <div className="rt-auth-chip">
+          <div className="avatar">{avatarInitial}</div>
+          <span>{session?.displayName || "Student"}</span>
+          <button onClick={logout} title="Logout" aria-label="Logout">
+            <i className="fas fa-right-from-bracket" />
+          </button>
+        </div>
+      </div>
+    </header>
+  );
+}

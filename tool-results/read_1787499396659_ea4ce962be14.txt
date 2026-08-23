@@ -1,0 +1,401 @@
+     1→    </div>
+     2→  </div>
+     3→
+     4→</div>
+     5→</div>
+     6→</div>
+     7→
+     8→<!-- ===== DRIVER VIEW ===== -->
+     9→<div id="sectionDriver" class="section-hidden">
+    10→<div class="page-content">
+    11→
+    12→  <div class="admin-top" style="margin-bottom:16px">
+    13→    <div>
+    14→      <div style="font-family:var(--font-head);font-size:15px;font-weight:600">Driver Parking Portal</div>
+    15→      <div style="font-size:12px;color:var(--text3);margin-top:2px">Update your exact parking location inside campus for students.</div>
+    16→    </div>
+    17→    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    18→      <div class="driver-status-chip"><i class="fas fa-circle" style="font-size:8px"></i> Driver access: unlocked</div>
+    19→      <button class="btn btn-ghost btn-sm" onclick="showTab('student')"><i class="fas fa-arrow-left"></i> Back</button>
+    20→    </div>
+    21→  </div>
+    22→
+    23→  <div class="driver-layout">
+    24→    <!-- Form -->
+    25→    <div class="panel">
+    26→      <div class="panel-head"><div><h3>Update Parking Location</h3><p>Select route and current spot inside campus.</p></div></div>
+    27→      <div class="panel-body">
+    28→        <form id="driverParkingForm" onsubmit="driverSubmit(event)">
+    29→          <div class="form-grid">
+    30→            <div class="form-field">
+    31→              <label>Your Route No *</label>
+    32→              <select id="dRouteSelect" required><option value="">Select route…</option></select>
+    33→            </div>
+    34→            <div class="form-field">
+    35→              <label>Parking Location *</label>
+    36→              <select id="dLocSelect" required>
+    37→                <option value="">Select a location…</option>
+    38→                <option value="In front of green building">1. In front of green building</option>
+    39→                <option value="In front of A block entrance">2. In front of A block entrance</option>
+    40→                <option value="Near to main entrance">3. Near to main entrance</option>
+    41→                <option value="In front of placement banner">4. In front of placement banner</option>
+    42→                <option value="In front of C block">5. In front of C block</option>
+    43→                <option value="In front of hut">6. In front of hut</option>
+    44→                <option value="Near to the ground">7. Near to the ground</option>
+    45→                <option value="Near to the astronaut statue">8. Near to the astronaut statue</option>
+    46→                <option value="In front of B block North">9. In front of B block North</option>
+    47→                <option value="In front of B block South">10. In front of B block South</option>
+    48→                <option value="Other">11. Custom (enter your own)</option>
+    49→              </select>
+    50→            </div>
+    51→            <div class="form-field hidden" id="dCustomField">
+    52→              <label>Custom Location</label>
+    53→              <input id="dCustomLoc" placeholder="e.g., Near canteen gate, workshop corner…"/>
+    54→            </div>
+    55→            <div class="form-field">
+    56→              <label>Extra Note (Optional)</label>
+    57→              <textarea id="dNote" rows="2" placeholder="e.g., Facing main gate, second row from fence…"></textarea>
+    58→            </div>
+    59→          </div>
+    60→          <div class="form-actions">
+    61→            <button type="button" class="btn btn-ghost btn-sm" onclick="driverClear()"><i class="fas fa-rotate-left"></i> Clear</button>
+    62→            <button type="submit" class="btn btn-primary"><i class="fas fa-location-arrow"></i> Publish Location</button>
+    63→          </div>
+    64→          <div class="footnote-note"><i class="fas fa-info-circle" style="color:var(--accent2);font-size:11px;margin-right:5px"></i>Parking stored in <code>localStorage</code>. Connect to Firebase for production use.</div>
+    65→        </form>
+    66→      </div>
+    67→    </div>
+    68→
+    69→    <!-- Live board -->
+    70→    <div class="panel">
+    71→      <div class="panel-head"><div><h3>Live Parking Board</h3><p>Students see these instantly in their table.</p></div></div>
+    72→      <div class="panel-body" id="driverCards"></div>
+    73→    </div>
+    74→  </div>
+    75→
+    76→</div>
+    77→</div>
+    78→
+    79→<!-- ===== ADMIN LOGIN MODAL ===== -->
+    80→<div id="adminLoginModal" class="modal-overlay hidden">
+    81→  <div class="modal-box" style="max-width:380px">
+    82→    <button class="modal-close" onclick="closeModal('adminLoginModal')"><i class="fas fa-xmark"></i></button>
+    83→    <div class="modal-header">
+    84→      <div class="modal-icon-ring"><i class="fas fa-user-shield"></i></div>
+    85→      <h2>Admin Login</h2>
+    86→      <p>Only authorized staff may update the official schedule.</p>
+    87→    </div>
+    88→    <div class="modal-body">
+    89→      <form id="adminLoginForm" onsubmit="adminLogin(event)">
+    90→        <div class="form-field" style="margin-bottom:10px"><label>Email</label><input type="email" id="adminEmail" placeholder="admin@college.edu" required/></div>
+    91→        <div class="form-field" style="margin-bottom:14px"><label>Password</label><input type="password" id="adminPass" placeholder="Enter admin password" required/></div>
+    92→        <button type="submit" class="btn btn-primary btn-full"><i class="fas fa-right-to-bracket"></i> Sign in as Admin</button>
+    93→        <p class="muted" style="font-size:11px;margin-top:10px;text-align:center">Demo: <code><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="85e4e1e8ecebc5e6eae9e9e0e2e0abe0e1f0">[email&#160;protected]</a></code> / <code>admin123</code></p>
+    94→      </form>
+    95→    </div>
+    96→  </div>
+    97→</div>
+    98→
+    99→<!-- ===== DRIVER LOGIN MODAL ===== -->
+   100→<div id="driverLoginModal" class="modal-overlay hidden">
+   101→  <div class="modal-box" style="max-width:380px">
+   102→    <button class="modal-close" onclick="closeModal('driverLoginModal')"><i class="fas fa-xmark"></i></button>
+   103→    <div class="modal-header">
+   104→      <div class="modal-icon-ring driver-ring"><i class="fas fa-id-badge"></i></div>
+   105→      <h2>Driver Login</h2>
+   106→      <p>Dedicated portal to mark your parking after entering campus.</p>
+   107→    </div>
+   108→    <div class="modal-body">
+   109→      <form id="driverLoginForm" onsubmit="driverLogin(event)">
+   110→        <div class="form-field" style="margin-bottom:10px"><label>Driver ID</label><input id="driverId" placeholder="e.g., driver01" required/></div>
+   111→        <div class="form-field" style="margin-bottom:14px"><label>Secure PIN</label><input type="password" id="driverPin" placeholder="Enter driver PIN" required/></div>
+   112→        <a href="driver.html" class="btn btn-ghost btn-full" style="text-decoration:none;margin-bottom:10px">
+   113→          <i class="fas fa-location-dot"></i> Share Location
+   114→        </a>
+   115→        <button type="submit" class="btn btn-primary btn-full"><i class="fas fa-truck-front"></i> Sign in as Driver</button>
+   116→        <p class="muted" style="font-size:11px;margin-top:10px;text-align:center">Demo: <code>driver01</code> / <code>driver123</code></p>
+   117→      </form>
+   118→    </div>
+   119→  </div>
+   120→</div>
+   121→
+   122→<!-- ===== STOPS MODAL ===== -->
+   123→<div id="stopsModal" class="modal-overlay hidden">
+   124→  <div class="modal-box" style="max-width:460px">
+   125→    <button class="modal-close" onclick="closeModal('stopsModal')"><i class="fas fa-xmark"></i></button>
+   126→    <div class="modal-header">
+   127→      <div class="modal-icon-ring stops-ring"><i class="fas fa-route"></i></div>
+   128→      <h2 id="stopsModalTitle">Route Stops</h2>
+   129→      <p id="stopsModalSub"></p>
+   130→    </div>
+   131→    <div class="modal-body" id="stopsModalBody"></div>
+   132→  </div>
+   133→</div>
+   134→
+   135→<!-- Toast -->
+   136→<div class="toast-container" id="toastContainer"></div>
+   137→
+   138→<script src="toast.js"></script>
+   139→<script src="sounds.js"></script>
+   140→<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
+   141→// ── DATA ──────────────────────────────────────────────────────────────────────
+   142→const routes=[
+   143→  {no:1,routeNo:"R01",routeName:"Ennore",timing:"Boarding Points",start:"5.50 am"},
+   144→  {no:2,routeNo:"R01A",routeName:"Tondiarpet",timing:"Boarding Points",start:"6.17 am"},
+   145→  {no:3,routeNo:"R01B",routeName:"Kasimedu",timing:"Boarding Points",start:"6.15 am"},
+   146→  {no:4,routeNo:"R02",routeName:"Triplicane",timing:"Boarding Points",start:"6.20 am"},
+   147→  {no:5,routeNo:"R03",routeName:"Choolai",timing:"Boarding Points",start:"6.20 am"},
+   148→  {no:6,routeNo:"R03A",routeName:"Collector Nagar",timing:"Boarding Points",start:"6.50 am"},
+   149→  {no:7,routeNo:"R03B",routeName:"Water Tank",timing:"Boarding Points",start:"6.40 am"},
+   150→  {no:8,routeNo:"R04",routeName:"East Mogappair",timing:"Boarding Points",start:"6.30 am"},
+   151→  {no:9,routeNo:"R05",routeName:"CIT Nagar",timing:"Boarding Points",start:"6.10 am"},
+   152→  {no:10,routeNo:"R05A",routeName:"Loyola College",timing:"Boarding Points",start:"6.40 am"},
+   153→  {no:11,routeNo:"R06",routeName:"Chinmayanagar",timing:"Boarding Points",start:"6.10 am"},
+   154→  {no:12,routeNo:"R07",routeName:"Santhome",timing:"Boarding Points",start:"6.10 am"},
+   155→  {no:13,routeNo:"R08",routeName:"Kovilambakkam",timing:"Boarding Points",start:"6.10 am"},
+   156→  {no:14,routeNo:"R08A",routeName:"Adambakkam",timing:"Boarding Points",start:"6.30 am"},
+   157→  {no:15,routeNo:"R09",routeName:"MKB Nagar",timing:"Boarding Points",start:"6.00 am"},
+   158→  {no:16,routeNo:"R09A",routeName:"Perambur",timing:"Boarding Points",start:"6.30 am"},
+   159→  {no:17,routeNo:"R10",routeName:"Thachoor",timing:"Boarding Points",start:"5.50 am"},
+   160→  {no:18,routeNo:"R11",routeName:"Chengalpattu",timing:"Boarding Points",start:"6.00 am"},
+   161→  {no:19,routeNo:"R11A",routeName:"Guduvanchery",timing:"Boarding Points",start:"6.30 am"},
+   162→  {no:20,routeNo:"R12",routeName:"Minjur",timing:"Boarding Points",start:"5.45 am"},
+   163→  {no:21,routeNo:"R13",routeName:"Vyasarpadi",timing:"Boarding Points",start:"6.10 am"},
+   164→  {no:22,routeNo:"R13A",routeName:"ICF",timing:"Boarding Points",start:"6.45 am"},
+   165→  {no:23,routeNo:"R14",routeName:"Thiruvallur",timing:"Boarding Points",start:"6.25 am"},
+   166→  {no:24,routeNo:"R14A",routeName:"Kakkalur",timing:"Boarding Points",start:"6.55 am"},
+   167→  {no:25,routeNo:"R15",routeName:"Kancheepuram",timing:"Boarding Points",start:"6.00 am"},
+   168→  {no:26,routeNo:"R15A",routeName:"Orikkai",timing:"Boarding Points",start:"6.15 am"},
+   169→  {no:27,routeNo:"R16",routeName:"Neelangkarai",timing:"Boarding Points",start:"6.10 am"},
+   170→  {no:28,routeNo:"R16A",routeName:"Guindy",timing:"Boarding Points",start:"6.45 am"},
+   171→  {no:29,routeNo:"R16B",routeName:"Sholinganallur",timing:"Boarding Points",start:"6.10 am"},
+   172→  {no:30,routeNo:"R17",routeName:"Valluvarkottam",timing:"Boarding Points",start:"6.15 am"},
+   173→  {no:31,routeNo:"R17A",routeName:"Valasaravakkam",timing:"Boarding Points",start:"6.45 am"},
+   174→  {no:32,routeNo:"R18",routeName:"Pallikaranai",timing:"Boarding Points",start:"6.15 am"},
+   175→  {no:33,routeNo:"R18A",routeName:"Sembakkam",timing:"Boarding Points",start:"6.25 am"},
+   176→  {no:34,routeNo:"R18B",routeName:"Kelambakkam",timing:"Boarding Points",start:"6.00 am"},
+   177→  {no:35,routeNo:"R19",routeName:"Poombukar",timing:"Boarding Points",start:"6.10 am"},
+   178→  {no:36,routeNo:"R19A",routeName:"Vinayagapuram",timing:"Boarding Points",start:"6.45 am"},
+   179→  {no:37,routeNo:"R20",routeName:"Vepampattu",timing:"Boarding Points",start:"6.30 am"},
+   180→  {no:38,routeNo:"R21",routeName:"Ayyapakkam",timing:"Boarding Points",start:"6.15 am"},
+   181→  {no:39,routeNo:"R22",routeName:"Thiruthani",timing:"Boarding Points",start:"5.55 am"},
+   182→  {no:40,routeNo:"R22A",routeName:"SR Gate",timing:"Boarding Points",start:"6.30 am"},
+   183→  {no:41,routeNo:"R23",routeName:"K4 Police Station",timing:"Boarding Points",start:"6.35 am"},
+   184→  {no:42,routeNo:"R24",routeName:"Arcot",timing:"Boarding Points",start:"5.25 am"},
+   185→  {no:43,routeNo:"R25",routeName:"Kallikuppam",timing:"Boarding Points",start:"6.45 am"},
+   186→  {no:44,routeNo:"R25A",routeName:"Pudur",timing:"Boarding Points",start:"6.45 am"},
+   187→  {no:45,routeNo:"R26",routeName:"Andarkuppam",timing:"Boarding Points",start:"6.35 am"},
+   188→  {no:46,routeNo:"R27",routeName:"Avadi",timing:"Boarding Points",start:"6.25 am"},
+   189→  {no:47,routeNo:"R27A",routeName:"Kollumedu",timing:"Boarding Points",start:"6.30 am"},
+   190→  {no:48,routeNo:"R28",routeName:"Agaram",timing:"Boarding Points",start:"6.20 am"},
+   191→  {no:49,routeNo:"R29",routeName:"Velachery",timing:"Boarding Points",start:"6.10 am"},
+   192→  {no:50,routeNo:"R29A",routeName:"Pammal",timing:"Boarding Points",start:"6.35 am"},
+   193→  {no:51,routeNo:"R29B",routeName:"Sivanthangal",timing:"Boarding Points",start:"7.05 am"}
+   194→];
+   195→
+   196→const routeStops={
+   197→  R01:[{stop:"Lift Gate",time:"5.50 am"},{stop:"Wimco Market",time:"5.55 am"},{stop:"Ajax",time:"6.00 am"},{stop:"Periyar Nagar",time:"6.03 am"},{stop:"Thiruvottiyur Market",time:"6.08 am"},{stop:"Theradi",time:"6.10 am"},{stop:"Ellaimman Koil",time:"6.12 am"},{stop:"Raja Kadai",time:"6.14 am"},{stop:"Toll Gate",time:"6.15 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   198→  R01A:[{stop:"New Vannarpettai",time:"6.17 am"},{stop:"Apollo",time:"6.18 am"},{stop:"Tondiarpet",time:"6.19 am"},{stop:"Maharani",time:"6.21 am"},{stop:"Mint",time:"6.22 am"},{stop:"New Bus Stand Mint",time:"6.27 am"},{stop:"Thirupalli Street",time:"6.33 am"},{stop:"Aminjikarai",time:"7.00 am"},{stop:"Skywalk",time:"7.02 am"},{stop:"Arumbakkam",time:"7.07 am"},{stop:"Koyambedu Metro",time:"7.10 am"},{stop:"Vengaya Mandi",time:"7.16 am"},{stop:"Ration Stop (Nerkundram)",time:"7.20 am"},{stop:"Maduravoyal",time:"7.21 am"},{stop:"Maduravoyal Erikarai",time:"7.25 am"},{stop:"Vanagaram",time:"7.29 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   199→  R01B:[{stop:"Kasimedu",time:"6.15 am"},{stop:"Kalmandapam",time:"6.21 am"},{stop:"Royapuram Bridge",time:"6.27 am"},{stop:"Beach Station",time:"6.30 am"},{stop:"Parry's",time:"6.34 am"},{stop:"Central",time:"6.37 am"},{stop:"Egmore",time:"6.40 am"},{stop:"Dasaprakash",time:"6.44 am"},{stop:"Ega Theatre",time:"6.48 am"},{stop:"Aminjikarai Market",time:"6.51 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   200→  R02:[{stop:"Chintadripet (Post Office)",time:"6.20 am"},{stop:"D1 Police Station",time:"6.25 am"},{stop:"Triplicane Highway",time:"6.29 am"},{stop:"Ice House Police Station",time:"6.32 am"},{stop:"Meersahibpet Market",time:"6.35 am"},{stop:"Royapettah New College",time:"6.39 am"},{stop:"Sterling Road (Bharath Petrol Bunk)",time:"6.40 am"},{stop:"Choolaimedu Subway",time:"6.43 am"},{stop:"Choolaimedu Bus Stop",time:"6.45 am"},{stop:"Anna Arch",time:"6.50 am"},{stop:"Arumbakkam Panchaliamman Koil",time:"6.53 am"},{stop:"NSK",time:"6.55 am"},{stop:"Maduravoyal Murugan Store",time:"6.58 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   201→  R03:[{stop:"Pulianthope",time:"6.20 am"},{stop:"Choolai Post Office",time:"6.25 am"},{stop:"Purasaivakkam Doveton",time:"6.30 am"},{stop:"Kellys Signal",time:"6.33 am"},{stop:"Water Tank Road Signal",time:"6.40 am"},{stop:"Kilpauk Garden",time:"6.45 am"},{stop:"Chinthamani",time:"6.50 am"},{stop:"Anna Nagar Roundtana",time:"6.55 am"},{stop:"Thirumangalam Blue Star",time:"6.57 am"},{stop:"VR Mall",time:"7.00 am"},{stop:"Maduravoyal Ration Shop",time:"7.10 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   202→  R03A:[{stop:"Collector Nagar",time:"6.50 am"},{stop:"Golden Flat",time:"6.55 am"},{stop:"Mogappair West Depot",time:"7.00 am"},{stop:"Nolambur",time:"7.03 am"},{stop:"MGR University",time:"7.08 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   203→  R03B:[{stop:"Gangaiamman Koil",time:"6.40 am"},{stop:"Madina Masjid",time:"6.43 am"},{stop:"New Avadi Road",time:"6.45 am"},{stop:"Chintamani",time:"6.50 am"},{stop:"Nalli Store",time:"6.58 am"},{stop:"Anna Nagar Metro",time:"7.05 am"},{stop:"Thirumangalam Metro",time:"7.10 am"},{stop:"Nerkundram",time:"7.15 am"},{stop:"Maduravoyal Ration Shop",time:"7.25 am"},{stop:"Maduravoyal Erikarai",time:"7.27 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   204→  R04:[{stop:"JJ Nagar Police Station",time:"6.30 am"},{stop:"HDFC Bank",time:"6.32 am"},{stop:"IOB Bank",time:"6.35 am"},{stop:"7H Bus Depot",time:"6.40 am"},{stop:"Amutha School",time:"6.50 am"},{stop:"D.R. Super Market",time:"6.52 am"},{stop:"Nolambur",time:"6.55 am"},{stop:"Meadows Apartment",time:"6.57 am"},{stop:"MGR University",time:"7.00 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   205→  R05:[{stop:"CIT Nagar",time:"6.10 am"},{stop:"Aranganathan Subway",time:"6.12 am"},{stop:"Srinivasa Theatre",time:"6.14 am"},{stop:"Mettupalayam",time:"6.16 am"},{stop:"Sangamam Hotel",time:"6.19 am"},{stop:"Arya Gowda Road",time:"6.24 am"},{stop:"Vivek",time:"6.29 am"},{stop:"Usman Road",time:"6.34 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   206→  R05A:[{stop:"Loyola College",time:"6.40 am"},{stop:"Choolaimedu",time:"6.45 am"},{stop:"Metha Nagar",time:"6.49 am"},{stop:"NSK Nagar",time:"6.55 am"},{stop:"Arumbakkam (SBI Bank)",time:"7.00 am"},{stop:"MMDA Cholan Street",time:"7.05 am"},{stop:"MMDA Vallavan Hotel",time:"7.10 am"},{stop:"CMBT (Koyambedu)",time:"7.15 am"},{stop:"Rohini Theatre",time:"7.18 am"},{stop:"Nerkundram Vengaya Mandi",time:"7.22 am"},{stop:"Maduravoyal Erikarai",time:"7.25 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   207→  R06:[{stop:"Chinmayanagar",time:"6.10 am"},{stop:"Sai Nagar",time:"6.12 am"},{stop:"Natesan Nagar",time:"6.13 am"},{stop:"Elango Nagar",time:"6.14 am"},{stop:"Virugampakkam",time:"6.17 am"},{stop:"KK Nagar",time:"6.20 am"},{stop:"KK Nagar ESI",time:"6.27 am"},{stop:"Ashok Pillar",time:"6.32 am"},{stop:"Kasi Theatre",time:"6.37 am"},{stop:"Ekkatuthangal",time:"6.42 am"},{stop:"Olympia",time:"6.43 am"},{stop:"Porur Saravana Stores",time:"6.55 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   208→  R07:[{stop:"Mandaveli Bus Depot",time:"6.10 am"},{stop:"Pattinapakkam",time:"6.15 am"},{stop:"Kutchery Road",time:"6.20 am"},{stop:"Luz Corner",time:"6.25 am"},{stop:"P.S. Sivasamy Road",time:"6.27 am"},{stop:"SIET College",time:"6.32 am"},{stop:"Nandanam Signal",time:"6.37 am"},{stop:"Saidapet Veterinary Hospital",time:"6.42 am"},{stop:"Saidapet Bus Stop",time:"6.47 am"},{stop:"Guindy",time:"6.49 am"},{stop:"Butt Road",time:"6.55 am"},{stop:"Chennai Trade Centre",time:"7.10 am"},{stop:"Porur",time:"7.15 am"},{stop:"Ayyappanthangal",time:"7.18 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   209→  R08:[{stop:"Kovilampakkam",time:"6.10 am"},{stop:"Keelkattalai Bus Stop",time:"6.12 am"},{stop:"Madipakkam UTI Bank",time:"6.15 am"},{stop:"Madipakkam Koot Road Bus Stop",time:"6.16 am"},{stop:"Ranga Theatre",time:"6.18 am"},{stop:"Nanganallur Chidambaram Stores",time:"6.20 am"},{stop:"Nanganallur Saravana Hotel",time:"6.22 am"},{stop:"Vanuvampet Church",time:"6.25 am"},{stop:"Surendhar Nagar Bus Stop",time:"6.27 am"},{stop:"Jayalakshmi Theatre",time:"6.29 am"},{stop:"Thillai Ganga Nagar Subway",time:"6.32 am"},{stop:"Aazar Khana Bus Stop",time:"6.35 am"},{stop:"Butt Road",time:"6.37 am"},{stop:"Ramavaram",time:"6.39 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   210→  R08A:[{stop:"Seasons",time:"6.30 am"},{stop:"Kakkan Bridge",time:"6.33 am"},{stop:"Adambakkam Bus Depot",time:"6.35 am"},{stop:"St Thomas Mount",time:"6.38 am"},{stop:"Deepam Foods",time:"6.40 am"},{stop:"Maharaja Traders",time:"6.45 am"},{stop:"Vanuvampet Church",time:"6.50 am"},{stop:"Thillai Ganga Nagar Subway",time:"6.55 am"},{stop:"Butt Road",time:"7.00 am"},{stop:"Poonamallee",time:"7.35 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   211→  R09:[{stop:"Vyasarpadi",time:"6.00 am"},{stop:"MKB Nagar",time:"6.05 am"},{stop:"E.B. Stop",time:"6.08 am"},{stop:"Kannadhasan Nagar",time:"6.10 am"},{stop:"M.R. Nagar",time:"6.13 am"},{stop:"Lakshmi Amman Nagar",time:"6.22 am"},{stop:"B.B. Road",time:"6.26 am"},{stop:"Perambur Market",time:"6.34 am"},{stop:"Agaram",time:"6.40 am"},{stop:"Peravalur Road",time:"6.42 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   212→  R09A:[{stop:"BB Road",time:"6.30 am"},{stop:"Perambur Bus Stop",time:"6.35 am"},{stop:"Perambur Railway Station",time:"6.39 am"},{stop:"Perambur Church",time:"6.41 am"},{stop:"Sembium Police Station",time:"6.43 am"},{stop:"Gandhi Salai",time:"6.45 am"},{stop:"Venus Mall",time:"6.47 am"},{stop:"Retteri",time:"6.50 am"},{stop:"Senthil Nagar",time:"6.55 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   213→  R10:[{stop:"Thachoor",time:"5.50 am"},{stop:"Panjetty",time:"5.52 am"},{stop:"Janappanchatram Bypass",time:"5.55 am"},{stop:"Karanodai Bypass",time:"5.58 am"},{stop:"Vijaya Nallur",time:"6.03 am"},{stop:"Toll Gate",time:"6.05 am"},{stop:"Padianallur",time:"6.07 am"},{stop:"Red Hills (GRT)",time:"6.10 am"},{stop:"Red Hills Market",time:"6.12 am"},{stop:"Kavangarai",time:"6.15 am"},{stop:"Puzhal Jail",time:"6.17 am"},{stop:"Puzhal Camp",time:"6.20 am"},{stop:"Velammal College",time:"6.25 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   214→  R11:[{stop:"Chengalpattu Rattinakinaru",time:"6.00 am"},{stop:"New Bus Stand",time:"6.02 am"},{stop:"Old Bus Stand",time:"6.04 am"},{stop:"Chengalpattu Bypass",time:"6.07 am"},{stop:"SP Kovil",time:"6.18 am"},{stop:"MM Nagar Samiyar Gate",time:"6.23 am"},{stop:"MM Nagar Bus Stand",time:"6.28 am"},{stop:"Kattankulathur",time:"6.30 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   215→  R11A:[{stop:"Guduvanchery",time:"6.30 am"},{stop:"Urapakkam",time:"6.35 am"},{stop:"Vandalur",time:"6.40 am"},{stop:"Perungalathur",time:"6.45 am"},{stop:"Vandalur Bridge",time:"6.55 am"},{stop:"Mannivakkam",time:"7.05 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   216→  R12:[{stop:"Minjur Bus Stand",time:"5.45 am"},{stop:"Minjur Railway Station",time:"5.50 am"},{stop:"BDO Office",time:"5.52 am"},{stop:"Nandiyambakkam",time:"5.54 am"},{stop:"Pattamandiri",time:"6.00 am"},{stop:"Napalayam",time:"6.05 am"},{stop:"Manali Pudhu Nagar",time:"6.08 am"},{stop:"Manali Market",time:"6.15 am"},{stop:"MMDA 3rd Main Road",time:"6.18 am"},{stop:"Mathur",time:"6.22 am"},{stop:"Veterinary Hospital",time:"6.25 am"},{stop:"Madhavaram Milk Colony",time:"6.28 am"},{stop:"Arul Nagar",time:"6.30 am"},{stop:"Thapalpetti",time:"6.32 am"},{stop:"Moolakadai",time:"6.38 am"},{stop:"Kalpana Lamp",time:"6.45 am"},{stop:"Madhavaram Roundana",time:"6.47 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   217→  R13:[{stop:"Ganeshapuram",time:"6.10 am"},{stop:"G3 Police Station",time:"6.15 am"},{stop:"Pattalam",time:"6.18 am"},{stop:"Otteri",time:"6.20 am"},{stop:"Podi Kadai",time:"6.23 am"},{stop:"T.B. Hospital",time:"6.25 am"},{stop:"Ayanavaram Signal",time:"6.27 am"},{stop:"Sayyani",time:"6.30 am"},{stop:"Ayanavaram Noor Hotel",time:"6.33 am"},{stop:"Joint Office",time:"6.35 am"},{stop:"Ayanavaram Railway Quarters",time:"6.37 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   218→  R13A:[{stop:"ICF Signal",time:"6.45 am"},{stop:"Villivakkam Bus Stand",time:"6.50 am"},{stop:"Korattur Signal",time:"6.55 am"},{stop:"Nolambur Signal",time:"7.05 am"},{stop:"Vanagaram",time:"7.15 am"},{stop:"Velappanchavadi",time:"7.23 am"},{stop:"Poonamallee Bypass",time:"7.30 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   219→  R14:[{stop:"Sevapetai",time:"6.25 am"},{stop:"Kakkalur",time:"6.30 am"},{stop:"Poonga Nagar",time:"6.35 am"},{stop:"GRT",time:"6.50 am"},{stop:"Manavalanagar Signal",time:"6.55 am"},{stop:"Manavalanagar Railway Station",time:"6.57 am"},{stop:"Putlur",time:"7.10 am"},{stop:"Aranvoyal",time:"7.15 am"},{stop:"Puthuchatram (India Japan Company)",time:"7.20 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   220→  R14A:[{stop:"Kakkalur Signal",time:"6.55 am"},{stop:"SBI Bank",time:"6.58 am"},{stop:"Vellavedu",time:"7.20 am"},{stop:"Thirumazhisai",time:"7.25 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   221→  R15:[{stop:"Ayyangarkulam",time:"6.00 am"},{stop:"Housing Board",time:"6.05 am"},{stop:"Collector Office",time:"6.07 am"},{stop:"Rangasamy Kulam",time:"6.15 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   222→  R15A:[{stop:"Orikkai",time:"6.15 am"},{stop:"JJ Nagar",time:"6.17 am"},{stop:"Keerai Mandapam",time:"6.20 am"},{stop:"Tollgate",time:"6.23 am"},{stop:"Pachaiyappa's College",time:"6.30 am"},{stop:"Ayyampettai",time:"6.32 am"},{stop:"Rajampettai",time:"6.40 am"},{stop:"Walajabad",time:"6.50 am"},{stop:"Natha Nallur",time:"7.00 am"},{stop:"Panrutti",time:"7.03 am"},{stop:"Oragadam",time:"7.12 am"},{stop:"Arun Excello",time:"7.15 am"},{stop:"Sriperumbudur High School",time:"7.20 am"},{stop:"Sriperumbudur Tollgate",time:"7.25 am"},{stop:"Irungattukottai Bus Stand",time:"7.30 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   223→  R16:[{stop:"Prathana Theatre",time:"6.10 am"},{stop:"Vetuvankeni",time:"6.15 am"},{stop:"Thiruvanmiyur RTO Office",time:"6.20 am"},{stop:"Adyar Depot",time:"6.29 am"},{stop:"Madhya Kailash",time:"6.35 am"},{stop:"Guindy",time:"6.42 am"},{stop:"Mugalivakkam",time:"6.55 am"},{stop:"Karayanchavadi",time:"7.10 am"},{stop:"Poonamallee Bus Stand",time:"7.15 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   224→  R16A:[{stop:"Butt Road",time:"6.45 am"},{stop:"Nandambakkam",time:"6.48 am"},{stop:"Ramapuram Signal",time:"6.52 am"},{stop:"DLF",time:"6.55 am"},{stop:"Mugalivakkam",time:"7.00 am"},{stop:"Saravana Stores",time:"7.03 am"},{stop:"Poonamallee Depot",time:"7.25 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   225→  R16B:[{stop:"Sholinganallur",time:"6.10 am"},{stop:"Karapakkam",time:"6.16 am"},{stop:"Karapakkam - TCS",time:"6.19 am"},{stop:"PTC (KFC)",time:"6.24 am"},{stop:"Mettukuppam",time:"6.26 am"},{stop:"Selaiyur",time:"6.56 am"},{stop:"MCC",time:"6.59 am"},{stop:"Kulakarai Street",time:"7.05 am"},{stop:"Krishna Nagar",time:"7.07 am"},{stop:"Bharathi Nagar",time:"7.08 am"},{stop:"Madanapuram",time:"7.13 am"},{stop:"Nazarathpettai",time:"7.34 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   226→  R17:[{stop:"Valluvarkottam",time:"6.15 am"},{stop:"Liberty",time:"6.20 am"},{stop:"Power House",time:"6.25 am"},{stop:"Lakshman Sruthi",time:"6.30 am"},{stop:"Thai Sathya",time:"6.35 am"},{stop:"Virugampakkam",time:"6.40 am"},{stop:"Alwar Thirunagar",time:"6.42 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   227→  R17A:[{stop:"Valasaravakkam Shivan Koil",time:"6.45 am"},{stop:"Valasaravakkam",time:"6.50 am"},{stop:"Saravana Bhavan Hotel",time:"6.53 am"},{stop:"Lakshmi Nagar",time:"6.55 am"},{stop:"Porur Bridge",time:"7.00 am"},{stop:"Iyyappanthangal",time:"7.05 am"},{stop:"Kattupakkam",time:"7.10 am"},{stop:"Kumanachavadi",time:"7.15 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   228→  R18:[{stop:"Pallikaranai Munsif Office",time:"6.15 am"},{stop:"Medavakkam Junction",time:"6.20 am"},{stop:"Perumbakkam",time:"6.25 am"},{stop:"Madambakkam",time:"6.30 am"},{stop:"Selaiyur",time:"6.35 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   229→  R18A:[{stop:"Sembakkam",time:"6.25 am"},{stop:"Kamarajapuram",time:"6.30 am"},{stop:"Rajakilpakkam Signal",time:"6.32 am"},{stop:"Camp Road",time:"6.35 am"},{stop:"Tambaram Sanatorium",time:"6.50 am"},{stop:"Chrompet",time:"6.55 am"},{stop:"Thiruneermalai",time:"7.00 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   230→  R18B:[{stop:"Kelambakkam - GH",time:"6.00 am"},{stop:"Pudupakkam",time:"6.10 am"},{stop:"Mambakkam (Samathuvapuram)",time:"6.15 am"},{stop:"Mambakkam Kulam",time:"6.25 am"},{stop:"Ponmar",time:"6.30 am"},{stop:"Sithalapakkam",time:"6.35 am"},{stop:"Private Parking",time:"6.45 am"},{stop:"Santhosapuram",time:"6.50 am"},{stop:"Kamarajapuram",time:"7.00 am"},{stop:"Kishkinta Kulam",time:"7.15 am"},{stop:"Old Perungalathur",time:"7.20 am"},{stop:"Mudichur Bypass",time:"7.25 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   231→  R19:[{stop:"Poombukar",time:"6.10 am"},{stop:"Ganga Cinema",time:"6.25 am"},{stop:"Don Bosco",time:"6.28 am"},{stop:"Poombukar (Second Stop)",time:"6.30 am"},{stop:"Korattur Bus Stop",time:"6.55 am"},{stop:"Padi Britania",time:"6.58 am"},{stop:"TVS Show Room",time:"7.10 am"},{stop:"Ambattur",time:"7.12 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   232→  R19A:[{stop:"Vinayagapuram Bus Stand",time:"6.45 am"},{stop:"Retteri RTO Office",time:"6.55 am"},{stop:"Retteri",time:"6.58 am"},{stop:"Senthil Nagar",time:"7.00 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   233→  R20:[{stop:"Vepampattu Railway Station",time:"6.30 am"},{stop:"Madha Kovil",time:"6.32 am"},{stop:"Eswar Nagar",time:"6.33 am"},{stop:"Indian Bank Thiruninravur",time:"6.35 am"},{stop:"Thiruninravur Railway Station",time:"6.36 am"},{stop:"Thiruninravur Bridge",time:"6.37 am"},{stop:"Jaya College",time:"6.39 am"},{stop:"Nemilicherri Road",time:"6.40 am"},{stop:"Pattabiram Gandhi Nagar",time:"6.41 am"},{stop:"Pattabiram Vasantha Mandapam",time:"6.42 am"},{stop:"Sekkadu Bus Stand",time:"6.45 am"},{stop:"Avadi Ponnu Store",time:"6.50 am"},{stop:"Avadi J.P. Garden",time:"6.52 am"},{stop:"Govarthanagiri Bus Stand",time:"6.55 am"},{stop:"Chennirkuppam",time:"7.05 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   234→  R21:[{stop:"Ayappakkam Parking",time:"6.15 am"},{stop:"Ayappakkam SBI ATM",time:"6.17 am"},{stop:"Ayappakkam Petrol Bunk",time:"6.20 am"},{stop:"ICF Church",time:"6.22 am"},{stop:"Canara Bank",time:"6.27 am"},{stop:"Singapore Shopping",time:"6.32 am"},{stop:"Senneerkuppam",time:"7.05 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   235→  R22:[{stop:"Thiruthani Bypass",time:"5.55 am"},{stop:"Thiruvallur Bypass X Road",time:"6.00 am"},{stop:"Nagalamman Nagar",time:"6.08 am"},{stop:"Krishna Poly",time:"6.10 am"},{stop:"Jothi Nagar",time:"6.12 am"},{stop:"Indira Gandhi Nagar",time:"6.15 am"},{stop:"Swalpet",time:"6.16 am"},{stop:"Government Hospital",time:"6.17 am"},{stop:"Old Bus Stand",time:"6.18 am"},{stop:"Railway Station",time:"6.20 am"},{stop:"New Bus Stand",time:"6.22 am"},{stop:"Navy Gate",time:"6.30 am"},{stop:"Venkatesapuram",time:"6.31 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   236→  R22A:[{stop:"SR Gate",time:"6.30 am"},{stop:"Thakkolam Koot Road",time:"6.40 am"},{stop:"Thakkolam",time:"6.44 am"},{stop:"Marimangalam",time:"6.50 am"},{stop:"Narasimapuram",time:"6.55 am"},{stop:"Perambakkam",time:"7.05 am"},{stop:"Koovam Bus Stop",time:"7.08 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   237→  R23:[{stop:"Nathamuni Theatre",time:"6.35 am"},{stop:"K4 Police Station",time:"6.40 am"},{stop:"Labour Officers Quarters",time:"6.42 am"},{stop:"Vijaya Maruthi (Nuts & Spices)",time:"6.44 am"},{stop:"Udayam Colony",time:"6.46 am"},{stop:"Kambar Colony",time:"6.48 am"},{stop:"Anna Nagar West Depot",time:"6.50 am"},{stop:"Thirumangalam Bridge",time:"6.52 am"},{stop:"Thirumangalam Waves",time:"6.56 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   238→  R24:[{stop:"Arcot Bus Stand",time:"5.25 am"},{stop:"Muthukadai",time:"5.30 am"},{stop:"VC Motor",time:"5.33 am"},{stop:"Walajapettai",time:"5.35 am"},{stop:"Arignar Anna Government College",time:"5.37 am"},{stop:"Walajapettai Toll Gate",time:"5.40 am"},{stop:"Kaveripakkam",time:"5.45 am"},{stop:"Perumpullipakkam",time:"6.00 am"},{stop:"Vinayagapuram (KPM)",time:"6.20 am"},{stop:"Olimugamathu Pettai (Gori)",time:"6.22 am"},{stop:"Egambaranathar Koil",time:"6.25 am"},{stop:"Kachapeswarar Koil",time:"6.28 am"},{stop:"Pookadai Chatram",time:"6.32 am"},{stop:"Kammal Street",time:"6.35 am"},{stop:"Indra Nagar (KPM Railway Gate)",time:"6.37 am"},{stop:"Ponnerikarai",time:"6.40 am"},{stop:"Santhavellore",time:"7.05 am"},{stop:"Sungawarchathram",time:"7.10 am"},{stop:"Vadamangalam",time:"7.20 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   239→  R25:[{stop:"Kallikuppam",time:"6.45 am"},{stop:"Stedford Hospital",time:"6.50 am"},{stop:"Saraswathy Nagar Indian Oil Petrol Bunk",time:"6.54 am"},{stop:"Manigandapuram",time:"6.56 am"},{stop:"Thirumullaivoyal Junction",time:"6.58 am"},{stop:"Vaishnavi Nagar",time:"7.00 am"},{stop:"Murugappa Polytechnic",time:"7.02 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   240→  R25A:[{stop:"Pudur",time:"6.45 am"},{stop:"Oragadam HP Pump",time:"6.47 am"},{stop:"PTR Mahal",time:"6.50 am"},{stop:"Ponnu Supermarket",time:"6.53 am"},{stop:"Govardhanagiri",time:"7.15 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   241→  R26:[{stop:"Andarkuppam",time:"6.35 am"},{stop:"Kundrathur",time:"6.40 am"},{stop:"Kundrathur Thandalam",time:"6.43 am"},{stop:"Kovur",time:"6.45 am"},{stop:"Gerugambakkam",time:"6.50 am"},{stop:"Bai Kadai",time:"6.53 am"},{stop:"Mathanandapuram",time:"6.55 am"},{stop:"Venkateswara Nagar",time:"6.58 am"},{stop:"Porur",time:"7.05 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   242→  R27:[{stop:"Ajeya Stadium",time:"6.25 am"},{stop:"HVF",time:"6.28 am"},{stop:"CRP",time:"6.32 am"},{stop:"Mitnamalli",time:"6.35 am"},{stop:"Muthapudupet",time:"6.40 am"},{stop:"Sasthri Nagar",time:"6.45 am"},{stop:"Avadi Checkpost",time:"6.55 am"},{stop:"Rama Rathna Theatre",time:"7.06 am"},{stop:"Avadi Mankoil",time:"7.10 am"},{stop:"Vasantham Nagar",time:"7.12 am"},{stop:"Kovarthanagiri",time:"7.14 am"},{stop:"Kendra Vihar",time:"7.15 am"},{stop:"Kaduveti",time:"7.17 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   243→  R27A:[{stop:"Kollumedu",time:"6.30 am"},{stop:"Vel Tech College",time:"6.40 am"},{stop:"Kovilpathagai",time:"6.45 am"},{stop:"Ajeya Stadium",time:"6.50 am"},{stop:"CRPF",time:"6.55 am"},{stop:"Mittanemili",time:"7.00 am"},{stop:"Palavedu Service Road",time:"7.10 am"},{stop:"Nemilichery Tollgate",time:"7.15 am"},{stop:"Chithukadu Blue",time:"7.25 am"},{stop:"Panimalar Tollgate",time:"7.30 am"},{stop:"Chembarambakkam",time:"7.37 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   244→  R28:[{stop:"Agaram",time:"6.20 am"},{stop:"Periyar Nagar",time:"6.22 am"},{stop:"Thiruvalluvar Thirumanamandapam",time:"6.24 am"},{stop:"Perumal Koil",time:"6.26 am"},{stop:"Kamban Nagar",time:"6.28 am"},{stop:"E.B",time:"6.30 am"},{stop:"Shanmugam Mahal",time:"6.32 am"},{stop:"Senthil Nagar",time:"6.35 am"},{stop:"Thathankuppam",time:"6.38 am"},{stop:"Kalyan Jewellers",time:"6.45 am"},{stop:"Collector Nagar",time:"6.47 am"},{stop:"Cheriyan Hospital",time:"6.48 am"},{stop:"Golden Flats",time:"6.50 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   245→  R29:[{stop:"Vijayanagar Bus Stand",time:"6.10 am"},{stop:"Kaiveli",time:"6.15 am"},{stop:"Kamachi Hospital",time:"6.17 am"},{stop:"Pallavaram Singapore Shopping",time:"6.30 am"},{stop:"Krishna Nagar",time:"6.33 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   246→  R29A:[{stop:"Pammal",time:"6.35 am"},{stop:"Arunmathi Theatre",time:"6.37 am"},{stop:"Anagaputhur",time:"6.39 am"},{stop:"Manikandan Nagar",time:"6.41 am"},{stop:"Karima Nagar",time:"6.45 am"},{stop:"Kundrathur (Theradi)",time:"6.48 am"},{stop:"RIT Campus",time:"7.40 am"}],
+   247→  R29B:[{stop:"Sivanthangal",time:"7.05 am"},{stop:"Muthukumaran College",time:"7.10 am"},{stop:"Pattu Koot Road",time:"7.13 am"},{stop:"Mangadu",time:"7.15 am"},{stop:"Kankaiyamman Kovil",time:"7.20 am"},{stop:"MGR Nagar",time:"7.23 am"},{stop:"Kumananchavadi",time:"7.25 am"},{stop:"Aravind Hospital",time:"7.30 am"},{stop:"RIT Campus",time:"7.40 am"}]
+   248→};
+   249→
+   250→// ── STATE ──────────────────────────────────────────────────────────────────────
+   251→let isAdmin=false,isDriver=false;
+   252→let editIdx=null;
+   253→let filteredRoutes=[...routes];
+   254→let selectedViewDate=new Date();
+   255→let driverParking={};
+   256→try{const s=localStorage.getItem("driverParking");if(s)driverParking=JSON.parse(s);}catch(_){}
+   257→
+   258→// ── HELPERS ──────────────────────────────────────────────────────────────────
+   259→function parseTime(t){
+   260→  if(!t)return 0;
+   261→  const [tp,mp]=(t.trim().split(/\s+/));
+   262→  const m=(mp||'').toLowerCase();
+   263→  const,mn]=tp.split('.');
+   264→  let hr=parseInt(h);const mi=parseInt(mn||0);
+   265→  if(m==='pm'&&hr!==12)hr+=12;
+   266→  if(m==='am'&&hr===12)hr=0;
+   267→  return hr*60+mi;
+   268→}
+   269→function timeCat(min){if(min<360)return'early';if(min<=390)return'normal';return'late';}
+   270→function isToday(ts){if(!ts)return false;const d=typeof ts==='number'?new Date(ts):new Date(ts);const n=new Date();return d.getDate()===n.getDate()&&d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear();}
+   271→function todayParking(){const o={};for(const[k,v]of Object.entries(driverParking))if(isToday(v.updatedAt))o[k]=v;return o;}
+   272→function toast(msg,type='success'){
+   273→  if(window.RitiansToast && typeof window.RitiansToast.show==='function'){
+   274→    window.RitiansToast.show(msg,type);
+   275→  }else{
+   276→    console.error('RitiansToast not loaded — check that toast.js is present and loaded before this script.');
+   277→    // Minimal fallback so the user still sees feedback. Don't rely on
+   278→    // #toastContainer already existing — it's normally created by
+   279→    // toast.js's own getContainer(), which never ran if we're in this
+   280→    // branch, so build it here instead of silently no-oping.
+   281→    let c=document.getElementById('toastContainer');
+   282→    if(!c){
+   283→      c=document.createElement('div');
+   284→      c.id='toastContainer';
+   285→      c.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:9999;display:flex;flex-direction:column;gap:8px;';
+   286→      document.body.appendChild(c);
+   287→    }
+   288→    const el=document.createElement('div');
+   289→    el.className='toast-fallback toast-'+type;
+   290→    el.textContent=typeof msg==='string'?msg:(msg&&msg.title)||(msg&&msg.message)||'Notification';
+   291→    el.style.cssText='background:#1a1f2e;color:#fff;padding:10px 16px;border-radius:8px;font-size:14px;box-shadow:0 4px 20px rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);';
+   292→    c.appendChild(el);
+   293→    setTimeout(()=>el.remove(),3000);
+   294→  }
+   295→}
+   296→function closeModal(id){document.getElementById(id).classList.add('hidden');}
+   297→function showModal(id){document.getElementById(id).classList.remove('hidden');}
+   298→
+   299→// ── CLOCK ──────────────────────────────────────────────────────────────────────
+   300→function updateClock(){
+   301→  const el=document.getElementById('clockEl');
+   302→  const n=new Date();
+   303→  el.textContent=n.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+   304→}
+   305→setInterval(updateClock,1000);updateClock();
+   306→
+   307→// ── TABS ──────────────────────────────────────────────────────────────────────
+   308→function showTab(tab){
+   309→  ['student','admin','driver'].forEach(t=>{
+   310→    document.getElementById('section'+t.charAt(0).toUpperCase()+t.slice(1)).classList.add('section-hidden');
+   311→    document.getElementById('section'+t.charAt(0).toUpperCase()+t.slice(1)).classList.remove('section-visible');
+   312→    document.getElementById('tab'+t.charAt(0).toUpperCase()+t.slice(1)).classList.remove('active');
+   313→  });
+   314→  const sid='section'+tab.charAt(0).toUpperCase()+tab.slice(1);
+   315→  document.getElementById(sid).classList.remove('section-hidden');
+   316→  document.getElementById(sid).classList.add('section-visible');
+   317→  document.getElementById('tab'+tab.charAt(0).toUpperCase()+tab.slice(1)).classList.add('active');
+   318→}
+   319→function onAdminClick(){if(!isAdmin){showModal('adminLoginModal');}else{showTab('admin');}}
+   320→function onDriverClick(){if(!isDriver){showModal('driverLoginModal');}else{showTab('driver');}}
+   321→
+   322→// ── WEEK STRIP ──────────────────────────────────────────────────────────────
+   323→function renderWeekStrip(){
+   324→  const c=document.getElementById('weekDays');
+   325→  const today=new Date();today.setHours(0,0,0,0);
+   326→  let html='';
+   327→  for(let i=0;i<7;i++){
+   328→    const d=new Date(today);d.setDate(today.getDate()+i);
+   329→    const lbl=d.toLocaleDateString('en-IN',{weekday:'short'}).toUpperCase()+' '+d.getDate();
+   330→    const active=selectedViewDate.toDateString()===d.toDateString();
+   331→    html+=`<button class="wday${active?' active':''}" data-iso="${d.toISOString()}">${lbl}</button>`;
+   332→  }
+   333→  c.innerHTML=html;
+   334→  c.querySelectorAll('.wday').forEach(b=>b.addEventListener('click',()=>{
+   335→    selectedViewDate=new Date(b.dataset.iso);
+   336→    renderWeekStrip();
+   337→    updateDateLabel();
+   338→  }));
+   339→}
+   340→function updateDateLabel(){
+   341→  const el=document.getElementById('selectedDateLabel');
+   342→  el.textContent=selectedViewDate.toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'short',year:'numeric'});
+   343→}
+   344→
+   345→// ── STATS ──────────────────────────────────────────────────────────────────────
+   346→function renderStats(){
+   347→  document.getElementById('statTotal').textContent=routes.length;
+   348→  const sorted=[...routes].sort((a,b)=>parseTime(a.start)-parseTime(b.start));
+   349→  document.getElementById('statEarliest').textContent=sorted[0].start;
+   350→  document.getElementById('statLatest').textContent=sorted[sorted.length-1].start;
+   351→  document.getElementById('statParking').textContent=Object.keys(todayParking()).length;
+   352→}
+   353→
+   354→// ── HIGHLIGHTS ──────────────────────────────────────────────────────────────
+   355→function renderHighlights(){
+   356→  const c=document.getElementById('highlightCards');
+   357→  const sorted=[...routes].sort((a,b)=>parseTime(a.start)-parseTime(b.start));
+   358→  const groups=[
+   359→    {title:'Earliest Departures',badge:'Start first',items:sorted.slice(0,3)},
+   360→    {title:'IT Corridor',badge:'South Chennai',items:routes.filter(r=>/(Sholinganallur|Velachery|Neelangkarai|Pallikaranai|Guindy)/i.test(r.routeName)).slice(0,3)},
+   361→    {title:'Far Distance',badge:'Long haul',items:routes.filter(r=>/(Kancheepuram|Thiruthani|Arcot|Chengalpattu)/i.test(r.routeName)).slice(0,3)},
+   362→  ];
+   363→  c.innerHTML=groups.map(g=>`
+   364→    <div class="hl-card">
+   365→      <div class="hl-title">${g.title} <span style="font-family:var(--font-mono);font-size:10px;color:var(--text3);font-weight:400;float:right">${g.badge}</span></div>
+   366→      ${g.items.map(r=>`<div class="hl-row"><span><i class="fas fa-route"></i>${r.routeNo} · ${r.routeName}</span><span>${r.start}</span></div>`).join('')}
+   367→    </div>
+   368→  `).join('');
+   369→}
+   370→
+   371→// ── ROUTE TABLE ──────────────────────────────────────────────────────────────
+   372→function renderTable(){
+   373→  const tbody=document.getElementById('routesTableBody');
+   374→  const noRes=document.getElementById('noResults');
+   375→  if(!filteredRoutes.length){tbody.innerHTML='';noRes.classList.remove('hidden');return;}
+   376→  noRes.classList.add('hidden');
+   377→  const tp=todayParking();
+   378→  tbody.innerHTML=filteredRoutes.map(r=>{
+   379→    const min=parseTime(r.start);const cat=timeCat(min);
+   380→    const bClass=cat==='early'?'badge-early':cat==='late'?'badge-late':'badge-normal';
+   381→    const bLabel=cat==='early'?'Early':cat==='late'?'Late':'Regular';
+   382→    const pk=tp[r.routeNo];
+   383→    const pkHtml=pk
+   384→      ?`<span class="badge badge-parking-on"><i class="fas fa-location-dot" style="font-size:10px"></i> ${pk.location}</span>`
+   385→      :`<span class="badge badge-parking-off"><i class="fas fa-circle" style="font-size:7px"></i> Not updated</span>`;
+   386→    return`<tr data-rno="${r.routeNo}">
+   387→      <td>${r.no}</td>
+   388→      <td>${r.routeNo}</td>
+   389→      <td>${r.routeName}</td>
+   390→      <td style="color:var(--text3)">${r.timing}</td>
+   391→      <td><span class="badge ${bClass}"><i class="fas fa-clock" style="font-size:10px"></i> ${r.start} · ${bLabel}</span></td>
+   392→      <td>${pkHtml}</td>
+   393→    </tr>`;
+   394→  }).join('');
+   395→  tbody.querySelectorAll('tr').forEach(tr=>{
+   396→    tr.addEventListener('click',()=>openStopsModal(tr.dataset.rno));
+   397→  });
+   398→}
+   399→
+   400→// ── SEARCH & SORT ──────────────────────────────────────────────────────────
+   401→function applyFilter(){
