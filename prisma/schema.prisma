@@ -1,8 +1,5 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+// Elite Fleet Tracking — Prisma schema
+// SQLite (single-file DB). Tables map cleanly to the spec in section 11.
 
 generator client {
   provider = "prisma-client-js"
@@ -17,16 +14,77 @@ model User {
   id        String   @id @default(cuid())
   email     String   @unique
   name      String?
+  role      String   @default("admin") // "admin" | "driver"
+  password  String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
-model Post {
-  id        String   @id @default(cuid())
-  title     String
-  content   String?
-  published Boolean  @default(false)
-  authorId  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model Vehicle {
+  id            String   @id @default(cuid())
+  vehicleNumber String   @unique
+  vehicleName   String
+  vehicleType   String   @default("bus")
+  driverName    String?
+  routeNo       String?  // e.g. "R01"
+  status        String   @default("offline") // live | idle | offline | tracking
+  lastLat       Float?
+  lastLng       Float?
+  lastSpeed     Float?
+  lastHeading   Float?
+  lastAccuracy  Float?
+  lastAltitude  Float?
+  lastSeenAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  locations     VehicleLocation[]
+  sessions      TrackingSession[]
+  stopCrossings StopCrossing[]
+
+  @@index([status])
+  @@index([routeNo])
+}
+
+model VehicleLocation {
+  id          String   @id @default(cuid())
+  vehicleId   String
+  latitude    Float
+  longitude   Float
+  accuracy    Float?
+  speed       Float?
+  heading     Float?
+  altitude    Float?
+  isSimulated Boolean  @default(false)
+  recordedAt  DateTime @default(now())
+  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId, recordedAt])
+}
+
+model TrackingSession {
+  id         String    @id @default(cuid())
+  vehicleId  String
+  startedAt  DateTime  @default(now())
+  stoppedAt  DateTime?
+  status     String    @default("active") // active | stopped
+  vehicle    Vehicle   @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId, startedAt])
+  @@index([status])
+}
+
+model StopCrossing {
+  id          String   @id @default(cuid())
+  vehicleId   String
+  routeNo     String
+  stopName    String
+  stopLat     Float
+  stopLng     Float
+  crossedAt   DateTime @default(now())
+  sequence    Int
+  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId, crossedAt])
+  @@index([routeNo, sequence])
 }

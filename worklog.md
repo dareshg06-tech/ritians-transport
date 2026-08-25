@@ -104,3 +104,61 @@ Stage Summary:
 - Live coordinates update every 2 seconds with real Chennai-area lat/long values.
 - Mini map preview appears below the data grid when sharing is active.
 - "Live Tracking" nav button at top opens the full LiveTrackingModal with 6 moving buses.
+
+---
+Task ID: 4
+Agent: main
+Task: Build Elite Live Vehicle Tracking & Driver GPS Portal — full-stack real-time fleet tracking platform with admin dashboard, driver GPS portal, where-is-my-bus feature (like Chalo/Where Is My Train), AI chatbot, and 3.40 pm college arrival reset logic.
+
+Work Log:
+- Designed architecture: Next.js 16 (single SPA with view state) + Prisma/SQLite + Leaflet + Socket.IO mini-service + z-ai-web-dev-sdk for AI chatbot.
+- Installed packages: leaflet, react-leaflet, ws, socket.io, socket.io-client, @types/leaflet, @types/ws.
+- Set up Prisma schema with 5 tables: User, Vehicle, VehicleLocation, TrackingSession, StopCrossing. Pushed to SQLite via `bun run db:push`.
+- Wrote seed script (scripts/seed.ts) that creates 10 buses (Bus One through Bus Ten) with route assignments (R01, R12, R24, R16B, R29, R05, R08, R03A, R16, R27) + admin/driver users. Ran successfully — 10 vehicles seeded.
+- Built WebSocket mini-service at mini-services/fleet-tracker/index.ts (port 3003) using Socket.IO. Events: location_update, stop_crossed, arrived_at_college, vehicle_offline, initial_state. In-memory cache of latest positions for new client bootstrap. Started in background via `nohup bun --hot index.ts &`.
+- Built REST API routes (all force-dynamic, runtime=nodejs):
+  - /api/vehicles (GET, POST)
+  - /api/vehicles/[id] (GET, PUT, DELETE)
+  - /api/vehicles/[id]/location (GET)
+  - /api/vehicles/[id]/history (GET — with from/to/limit query params, returns locations + crossings)
+  - /api/locations (POST — validates coords, saves location, updates vehicle's last position + status)
+  - /api/tracking/start (POST — closes existing sessions, clears today's crossings, creates new session, sets vehicle status to "tracking")
+  - /api/tracking/stop (POST)
+  - /api/tracking/status/[vehicleId] (GET)
+  - /api/stop-crossings (POST — with 5-min dedupe)
+  - /api/stop-crossings/[vehicleId] (GET — today's crossings)
+  - /api/stops/[routeNo] (GET — today's crossings for a route)
+  - /api/health (GET — total/live/idle/offline/tracking counts)
+  - /api/chat (POST — z-ai-web-dev-sdk with system prompt containing Ritians Transport context + live fleet state injected per request)
+- Built geo utilities (src/lib/ritians/geo.ts): haversineMeters, bearingDeg, formatDistance, formatDuration, timeAgo, statusFromLastSeen. Constants: OFFLINE_TIMEOUT_MS=2min, STOP_CROSSING_RADIUS_M=150, COLLEGE_ARRIVAL_RADIUS_M=200.
+- Built fleet mapping (src/lib/ritians/fleet.ts): 10 vehicles with route → destination coords. getRouteStopsWithCoords() returns route stops with synthesized lat/lng coords (interpolated between destination and RIT Campus). computeBusProgress() returns lastCrossed, nextStop (with ETA + distance), progressPercent.
+- Built WebSocket client hook (src/lib/fleet/useFleetSocket.ts): connects via `io("/?XTransformPort=3003")` per Caddy gateway requirements. Exposes emitLocation, emitStop, emitArrived, emitStopSharing. Connection status: connecting | connected | disconnected.
+- Built demo simulator (src/lib/fleet/demoSimulator.ts): for vehicles not being driver-tracked, simulates GPS positions moving along their route at ~35 km/h. Detects stop crossings (within 150m) and college arrival (within 200m of RIT Campus). After arrival, auto-resets after 10s for next trip. Marked isSimulated=true.
+- Built Leaflet map component (src/components/fleet/FleetMap.client.tsx): client-only (renamed to .client.tsx and dynamically imported via next/dynamic with ssr:false to avoid `window is not defined` SSR errors). Dark tile filter via CSS. Bus markers as divIcon (color by status: green=live, cyan=tracking, yellow=idle, gray=offline). Selected vehicle marker scales 1.3x + opens popup. Route polyline (cyan dashed) + stop markers (cyan dots, orange for RIT Campus, green for crossed). Popups show vehicle name, status, speed, last update, coords, route.
+- Built Landing page (src/components/fleet/Landing.tsx): hero with gradient headline "Live Vehicle Tracking & Driver GPS Portal", badge with pulsing dot, two CTA buttons (Open Dashboard cyan, Driver GPS Portal orange), 4 stat cards (10 Vehicles, 51 Routes, 500+ Boarding Stops, AI Chat Assistant).
+- Built Dashboard (src/components/fleet/Dashboard.tsx): sticky header with logo, "Live Tracking" title + connection status subtitle. Top-right stats pills (Live/Tracking/Idle/Offline counts) + DEMO ON/OFF toggle + Driver Portal + Where Is My Bus buttons. Left sidebar (340px) with Vehicle Tracker heading, search input, filter buttons (All/Live/Track/Off with counts), Active Vehicles list — each card shows vehicle icon (color by status), name, vehicle number, route, status chip, speed, last update time, progress bar. Right side: Leaflet map filling the area. Selected vehicle info overlay (top-left of map) with status/speed/coords/last crossed/next stop/progress/updated + "View Details & History" button. DEMO badge (top-right of map) when simulation is on. Mobile: sidebar becomes a drawer with toggle button.
+- Built Driver Portal (src/components/fleet/DriverPortal.tsx): centered card with cyan location icon hero (pulsing animation). Vehicle selector dropdown. Status message card (idle: "Your location is currently not being shared" / active: "Your location is currently being shared"). Green "Start Sharing Location" button (turns red "Stop Sharing Location" when active). Real `navigator.geolocation.watchPosition()` with enableHighAccuracy. Live GPS telemetry card with 8 rows: Latitude, Longitude, Accuracy, Speed, Heading, Altitude, Last Update, Update Freq. Progress bar with last crossed stop + ETA to next stop. Stop counter ("✓ 3 stops crossed"). Graceful error handling for permission denied / unavailable / timeout with helpful fix instructions. WebSocket status indicator. Stop-crossing detection (within 150m of a stop's coords → save to DB + toast + WS broadcast). College arrival detection (within 200m of RIT Campus → stop tracking session + reset crossings + arrival toast).
+- Built Vehicle Details (src/components/fleet/VehicleDetails.tsx): map showing the vehicle's full route + crossed stops (cyan=upcoming, green=crossed, orange=RIT). Tracking summary card: distance travelled, duration, max/avg speed, GPS points, stops crossed, start/end timestamps. Date/time filter (from/to datetime-local inputs). Stop crossings list with timestamps. Refresh History button.
+- Built Where Is My Bus view (src/components/fleet/WhereIsMyBus.tsx): "Where Is My Train"-style live view. Banner with title + description mentioning Chalo/Where Is My Train. Vehicle selector. Progress banner (% complete, last crossed, next stop + ETA, speed). Stop-crossing notification card. Stop list: each row has sequence number (green if crossed, cyan if current, gray if pending), stop name, scheduled time, coordinates, actual crossing timestamp if crossed, status badge (✓ Crossed / ETA X min / Pending).
+- Enhanced AI chatbot (src/components/fleet/Chatbot.tsx): floating orange FAB (bottom-right) with pulse indicator, opens 380×540 chat panel. Suggestion chips: "Where is Bus Five now?", "Which bus has crossed Kasimedu?", "How long until R01 reaches campus?", "Show me all live buses". Backend (/api/chat) injects live fleet state (all 10 vehicles' positions, speeds, last crossed stops) into the system prompt per request, so the AI's responses reference real live data.
+- Updated toast provider (src/lib/ritians/toast.tsx) with two new toast types: stop_crossed (cyan icon + vehicle name + crossed stop + ETA to next) and arrived_college (green icon + "arrived at RIT Campus" + "Tracking session completed — data saved").
+- Wired up main page (src/app/page.tsx): single SPA with view state (landing | dashboard | driver | details | where). Fetches /api/vehicles every 10s. Forwards live position updates from Dashboard to Where Is My Bus view via callback. AuthProvider + ToastProvider wrap everything.
+- Added ~700 lines of CSS to globals.css for: .rt-landing-* (landing page), .rt-fleet-* (dashboard layout, sidebar, vehicle cards, map area, header pills), .rt-gps-* (driver portal card, hero, telemetry grid), .rt-wimb-* (where is my bus view), .rt-vd-* (vehicle details), mobile responsive breakpoints (sidebar → drawer on tablet/mobile).
+- Fixed multiple lint issues: refactored cbRef updates to use useEffect (refs-in-render rule), used dynamic import with ssr:false for Leaflet (window is not defined), added eslint-disable for legitimate setState-in-effect patterns (fetchVehicles on mount).
+- Verified end-to-end with Agent Browser:
+  - Landing page renders with hero + 2 CTA buttons + 4 stat cards ✓
+  - Open Dashboard → 10 buses in sidebar with live status, search/filter, DEMO badge on map, map shows bus markers + route polyline + stop markers ✓
+  - Stop crossing notifications appear as toasts when simulated buses cross stops ✓
+  - Chatbot: asked "Where is Bus Five now?" → got response mentioning Bus Five, route R29, last crossed Vijayanagar Bus Stand, location 12.98, 80.22 (real live data) ✓
+  - Where Is My Bus view: progress banner (% complete, last crossed, next stop + ETA, speed), stop list with sequence numbers, scheduled times, coords, status badges (Crossed/ETA/Pending) ✓
+  - Driver Portal: large cyan location icon, vehicle selector, status card, green Start Sharing button, real `navigator.geolocation.watchPosition()` triggers permission prompt, when permission denied shows clear error message with fix instructions ✓
+- ESLint: 0 errors, 2 warnings (unused eslint-disable directives — non-blocking). Dev server: 0 errors. WebSocket service: 0 errors.
+
+Stage Summary:
+- Production-quality fleet tracking platform with premium dark glassmorphism UI.
+- 10 buses seeded with routes, real GPS via `navigator.geolocation.watchPosition()` in Driver Portal, demo simulator for non-driver-tracked vehicles.
+- Live updates via Socket.IO WebSocket (port 3003, accessed via Caddy gateway with XTransformPort=3003 query param).
+- Leaflet map with dark theme, animated bus markers (color by status), route polyline, stop markers (crossed = green, upcoming = cyan, RIT Campus = orange).
+- "Where Is My Bus" feature: similar to Chalo/Where Is My Train — shows last crossed stop, next stop ETA, % progress, distance to college. Stop crossing timestamps saved to DB. After college arrival, session auto-resets.
+- AI chatbot with live fleet context — responses reference real-time bus positions.
+- Files: prisma/schema.prisma, scripts/seed.ts, mini-services/fleet-tracker/{package.json,index.ts}, src/app/api/{vehicles,locations,tracking,stop-crossings,stops,health,chat}/route.ts, src/lib/{db.ts,ritians/{data,fleet,geo,auth,toast}.ts,fleet/{useFleetSocket,demoSimulator}.ts}, src/components/fleet/{Landing,Dashboard,DriverPortal,VehicleDetails,WhereIsMyBus,Chatbot,FleetMap.client}.tsx, src/app/{page.tsx,globals.css}, README.md.
