@@ -136,7 +136,10 @@ export function Dashboard() {
           viewMode={viewMode}
           onToggleView={() => setViewMode((v) => (v === "desktop" ? "mobile" : "desktop"))}
         />
-        <DriverGpsPortal onBack={() => setFullPage(null)} />
+        <DriverGpsPortal
+          onBack={() => setFullPage(null)}
+          onOpenTracking={() => { setFullPage(null); setTrackingOpen(true); }}
+        />
         <Chatbot />
       </>
     );

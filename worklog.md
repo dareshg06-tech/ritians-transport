@@ -76,3 +76,31 @@ Stage Summary:
 - Afternoon departure schedule: all 51 buses depart RIT Campus at 3.40 pm, arrival times calculated by reversing morning schedule. R01 Ennore → 5.30 pm (1h 50m), R24 Arcot → 5.55 pm (2h 15m), R29B Sivanthangal → 4.15 pm (35m, shortest), etc. New "Return Trip" tab in navbar.
 - Files added: src/app/api/chat/route.ts, src/components/ritians/{Chatbot,LiveTrackingModal,DriverGpsPortal,AttendanceDashboard,SOSDashboard,NotificationDashboard,FaceRegister,ReturnTripView}.tsx.
 - Files updated: src/lib/ritians/data.ts (coords + return-trip functions), src/components/ritians/{Navbar,StopsModal,Dashboard}.tsx, src/app/globals.css.
+
+---
+Task ID: 3
+Agent: main
+Task: Redesign Driver GPS Portal to match the original site's screenshot — minimal card layout with big orange location icon, green "Start Sharing Location" button, and Status/Latitude/Longitude data grid.
+
+Work Log:
+- Analyzed the user-provided screenshot of the original Ritians Transport Driver GPS Portal page.
+- Added new CSS to globals.css for `.rt-gps-page`, `.rt-gps-card`, `.rt-gps-hero` (with big orange icon), `.rt-gps-alert` (amber info box), `.rt-gps-select-wrap`, `.rt-gps-share-btn` (green gradient with rocket icon), `.rt-gps-data-grid` (Status/Latitude/Longitude rows), `.rt-gps-mini-map` (compact live position preview).
+- Rewrote `DriverGpsPortal.tsx`:
+  - Top nav: "Back to Home" + "Live Tracking" buttons (Live Tracking button turns active/cyan when sharing)
+  - Single centered card (max-width 560px) with rounded corners and glassmorphism backdrop
+  - Hero: 72×72 orange gradient icon (location-arrow) + "Driver GPS Portal" title + subtitle
+  - Amber alert box: "Your location is only visible while tracking is active. It auto-expires after 60 seconds of inactivity."
+  - "YOUR ROUTE / VEHICLE ID" label + dropdown with route icon and chevron
+  - Big green "Start Sharing Location" button (turns red "Stop Sharing Location" when active)
+  - Status/Latitude/Longitude data grid showing live values when sharing (Status: ● Live sharing in green, Latitude: 13.21670 in cyan, Longitude: 80.30000 in cyan, Route: R01 · Ennore, Updated: 1s ago)
+  - Mini live-position map preview (200px tall) showing cyan route stops + orange RIT Campus marker + animated bus marker
+  - Footer note about simulated GPS
+- Updated `Dashboard.tsx` to pass `onOpenTracking` prop to DriverGpsPortal so the "Live Tracking" nav button opens the LiveTrackingModal.
+- Verified end-to-end with Agent Browser: opened Driver GPS Portal from navbar → saw the new minimal card layout matching the screenshot → selected R01 Ennore → clicked "Start Sharing Location" → button turned red, Status changed to "● Live sharing", Latitude showed 13.21670, Longitude showed 80.30000 (actual Ennore coords), Route row appeared, Updated counter started, mini map preview showed cyan stops + orange RIT Campus + bus marker.
+- ESLint clean, zero console errors.
+
+Stage Summary:
+- Driver GPS Portal now matches the original screenshot's design: minimal centered card, big orange hero icon, green Start Sharing button, Status/Latitude/Longitude data grid.
+- Live coordinates update every 2 seconds with real Chennai-area lat/long values.
+- Mini map preview appears below the data grid when sharing is active.
+- "Live Tracking" nav button at top opens the full LiveTrackingModal with 6 moving buses.
