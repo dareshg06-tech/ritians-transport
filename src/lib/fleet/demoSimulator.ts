@@ -8,7 +8,7 @@ import { useEffect, useRef } from "react";
 import { FLEET, getRouteStopsWithCoords, computeBusProgress } from "@/lib/ritians/fleet";
 import { RIT_CAMPUS_COORDS, type Coord } from "@/lib/ritians/data";
 import { haversineMeters, STOP_CROSSING_RADIUS_M, COLLEGE_ARRIVAL_RADIUS_M } from "@/lib/ritians/geo";
-import type { VehicleLocationUpdate } from "@/lib/fleet/useFleetSocket";
+import type { VehicleLocationUpdate } from "@/lib/fleet/useFleetStream";
 
 interface DemoVehicle {
   vehicleId: string;

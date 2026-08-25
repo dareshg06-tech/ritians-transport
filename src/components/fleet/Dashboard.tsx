@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import { useFleetSocket, type VehicleLocationUpdate } from "@/lib/fleet/useFleetSocket";
+import { useFleetStream, type VehicleLocationUpdate } from "@/lib/fleet/useFleetStream";
 import { useDemoSimulator } from "@/lib/fleet/demoSimulator";
 import { useToast } from "@/lib/ritians/toast";
 import { FLEET } from "@/lib/ritians/fleet";
@@ -167,7 +167,7 @@ export function Dashboard({ vehicles, onSelectVehicleForDetails, onOpenDriver, o
     }).catch(() => {});
   }, [showArrived]);
 
-  const { status: wsStatus } = useFleetSocket({
+  const { status: wsStatus } = useFleetStream({
     onLocationUpdate,
     onVehicleOffline: (vehicleId) => {
       setLiveVehicles((prev) => {

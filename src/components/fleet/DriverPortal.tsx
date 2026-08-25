@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useFleetSocket, type VehicleLocationUpdate } from "@/lib/fleet/useFleetSocket";
+import { useFleetStream, type VehicleLocationUpdate } from "@/lib/fleet/useFleetStream";
 import { useToast } from "@/lib/ritians/toast";
 import { FLEET, getRouteStopsWithCoords, computeBusProgress } from "@/lib/ritians/fleet";
 import { RIT_CAMPUS_COORDS, type Coord } from "@/lib/ritians/data";
@@ -38,8 +38,9 @@ export function DriverPortal({ vehicles, onBack }: DriverPortalProps) {
   const [crossedStops, setCrossedStops] = useState<number>(0);
   const [progress, setProgress] = useState<{ percent: number; lastCrossed: string | null; nextStop: string | null; etaMin: number }>({ percent: 0, lastCrossed: null, nextStop: null, etaMin: 0 });
 
-  // WebSocket for broadcasting location
-  const { status: wsStatus, emitLocation, emitStop, emitArrived, emitStopSharing } = useFleetSocket({});
+  // SSE stream (for connection status display only — driver doesn't receive events,
+  // but the same hook gives us the connection state)
+  const { status: wsStatus } = useFleetStream({});
 
   // Pick first vehicle by default
   useEffect(() => {
@@ -101,7 +102,7 @@ export function DriverPortal({ vehicles, onBack }: DriverPortalProps) {
           ? Math.max(1, Math.round(haversineMeters(currentPos, nextStop.coords) / 1000 / (data.speed / 60)))
           : nextStop ? 1 : 0;
 
-        // Save stop crossing to backend
+        // Save stop crossing to backend (which also broadcasts to admin SSE clients)
         fetch("/api/stop-crossings", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -112,30 +113,10 @@ export function DriverPortal({ vehicles, onBack }: DriverPortalProps) {
             stopLat: sc.lat,
             stopLng: sc.lng,
             sequence: i,
+            vehicleName: vehicle.vehicleName,
+            nextStop: nextStop ? { name: nextStop.name, sequence: nextStop.sequence, etaMinutes: etaMin } : null,
           }),
         }).catch(() => {});
-
-        // Show toast
-        showStopCrossed({
-          vehicleId: vehicle.id,
-          vehicleName: vehicle.vehicleName,
-          routeNo: vehicle.routeNo || "",
-          stopName: stops[i].stop,
-          sequence: i,
-          crossedAt: Date.now(),
-          nextStop: nextStop ? { name: nextStop.name, sequence: nextStop.sequence, etaMinutes: etaMin } : null,
-        });
-
-        // Broadcast via WS
-        emitStop({
-          vehicleId: vehicle.id,
-          vehicleName: vehicle.vehicleName,
-          routeNo: vehicle.routeNo || "",
-          stopName: stops[i].stop,
-          sequence: i,
-          crossedAt: Date.now(),
-          nextStop: nextStop ? { name: nextStop.name, sequence: nextStop.sequence, etaMinutes: etaMin } : null,
-        });
       }
     }
 
@@ -148,8 +129,7 @@ export function DriverPortal({ vehicles, onBack }: DriverPortalProps) {
         if (dist < COLLEGE_ARRIVAL_RADIUS_M) {
           arrivedRef.current = true;
           showArrived({ vehicleId: vehicle.id, vehicleName: vehicle.vehicleName, arrivedAt: Date.now() });
-          emitArrived({ vehicleId: vehicle.id, vehicleName: vehicle.vehicleName, arrivedAt: Date.now() });
-          // Stop tracking session, reset crossings
+          // Stop tracking session (which also broadcasts vehicle_offline to admin SSE clients)
           fetch("/api/tracking/stop", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -174,25 +154,9 @@ export function DriverPortal({ vehicles, onBack }: DriverPortalProps) {
       etaMin: p.nextStop ? Math.max(1, Math.round(p.nextStop.distanceMeters / 1000 / ((data.speed || 30) / 60))) : 0,
     });
 
-    // Broadcast via WebSocket
-    emitLocation({
-      vehicleId: vehicle.id,
-      vehicleNumber: vehicle.vehicleNumber,
-      vehicleName: vehicle.vehicleName,
-      routeNo: vehicle.routeNo || "",
-      latitude: data.latitude,
-      longitude: data.longitude,
-      accuracy: data.accuracy,
-      speed: data.speed || 0,
-      heading: data.heading || 0,
-      altitude: data.altitude || undefined,
-      isSimulated: false,
-      timestamp: new Date(data.timestamp).toISOString(),
-      lastCrossedStop: p.lastCrossed ? { name: p.lastCrossed.name, sequence: p.lastCrossed.sequence, crossedAt: Date.now() } : null,
-      nextStop: p.nextStop ? { name: p.nextStop.name, sequence: p.nextStop.sequence, etaMinutes: progress.etaMin, distanceMeters: p.nextStop.distanceMeters } : null,
-      progressPercent: p.progressPercent,
-    });
-  }, [vehicle, emitLocation, emitStop, emitArrived, showStopCrossed, showArrived, show, progress.etaMin]);
+    // The /api/locations POST above already broadcasts the location update to admin SSE clients
+    // via the in-memory event bus, so no separate WebSocket emit is needed.
+  }, [vehicle, showStopCrossed, showArrived, show, progress.etaMin]);
 
   const handleError = useCallback((err: GeolocationPositionError) => {
     if (err.code === err.PERMISSION_DENIED) {
@@ -253,7 +217,7 @@ export function DriverPortal({ vehicles, onBack }: DriverPortalProps) {
     }
     setSharing(false);
     if (vehicle) {
-      emitStopSharing(vehicle.id);
+      // POST /api/tracking/stop broadcasts vehicle_offline to admin SSE clients via the event bus
       fetch("/api/tracking/stop", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -261,7 +225,7 @@ export function DriverPortal({ vehicles, onBack }: DriverPortalProps) {
       }).catch(() => {});
     }
     show("Location sharing stopped", "info");
-  }, [vehicle, emitStopSharing, show]);
+  }, [vehicle, show]);
 
   // Cleanup on unmount
   useEffect(() => {

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useCallback, useContext, useState } from "react";
-import type { StopCrossedNotification, ArrivedAtCollegeNotification } from "@/lib/fleet/useFleetSocket";
+import type { StopCrossedNotification, ArrivedAtCollegeNotification } from "@/lib/fleet/useFleetStream";
 
 type ToastType = "success" | "error" | "info" | "stop_crossed" | "arrived_college";
 

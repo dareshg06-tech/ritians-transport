@@ -1631,3 +1631,4 @@ body.rt-force-mobile .rt-styled-select { min-width: 0; width: 100%; }
 }
 .rt-toast.stop-crossed .body .title { font-weight: 700; font-size: 13px; }
 .rt-toast.stop-crossed .body .desc { font-size: 11px; color: var(--text2); margin-top: 2px; }
+/* cache-bust-1787674155 */

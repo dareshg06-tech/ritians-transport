@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { fleetBus } from "@/lib/fleet/eventBus";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// POST /api/locations — record a new vehicle location
-// Body: { vehicleId, latitude, longitude, accuracy?, speed?, heading?, altitude?, isSimulated? }
+// POST /api/locations — record a new vehicle location AND broadcast to admin clients
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
 
     // Update vehicle's last position + status
     const newStatus = (speed ?? 0) > 1 ? "live" : "idle";
-    await db.vehicle.update({
+    const vehicle = await db.vehicle.update({
       where: { id: vehicleId },
       data: {
         lastLat: latitude,
@@ -44,6 +44,28 @@ export async function POST(req: NextRequest) {
         lastAltitude: altitude ?? null,
         lastSeenAt: new Date(),
         status: newStatus,
+      },
+    });
+
+    // Broadcast to admin SSE clients via the event bus
+    fleetBus.publish({
+      type: "vehicle_location_updated",
+      data: {
+        vehicleId,
+        vehicleNumber: vehicle.vehicleNumber,
+        vehicleName: vehicle.vehicleName,
+        routeNo: vehicle.routeNo || undefined,
+        latitude,
+        longitude,
+        accuracy,
+        speed,
+        heading,
+        altitude,
+        isSimulated: !!isSimulated,
+        timestamp: new Date().toISOString(),
+        lastCrossedStop: body.lastCrossedStop || null,
+        nextStop: body.nextStop || null,
+        progressPercent: body.progressPercent || 0,
       },
     });
 

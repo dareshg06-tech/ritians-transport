@@ -162,3 +162,41 @@ Stage Summary:
 - "Where Is My Bus" feature: similar to Chalo/Where Is My Train — shows last crossed stop, next stop ETA, % progress, distance to college. Stop crossing timestamps saved to DB. After college arrival, session auto-resets.
 - AI chatbot with live fleet context — responses reference real-time bus positions.
 - Files: prisma/schema.prisma, scripts/seed.ts, mini-services/fleet-tracker/{package.json,index.ts}, src/app/api/{vehicles,locations,tracking,stop-crossings,stops,health,chat}/route.ts, src/lib/{db.ts,ritians/{data,fleet,geo,auth,toast}.ts,fleet/{useFleetSocket,demoSimulator}.ts}, src/components/fleet/{Landing,Dashboard,DriverPortal,VehicleDetails,WhereIsMyBus,Chatbot,FleetMap.client}.tsx, src/app/{page.tsx,globals.css}, README.md.
+
+---
+Task ID: 5
+Agent: main
+Task: Fix all issues — CSS not loading (stale cache), WebSocket service dying, "Connecting..." status stuck.
+
+Work Log:
+- Diagnosed: served CSS chunk had 0 references to custom classes (rt-landing, rt-fleet, rt-gps) even though source file had them. Added cache-buster comment to globals.css to force Tailwind v4 re-processing → CSS now serves correctly with all custom classes.
+- Diagnosed: WebSocket mini-service on port 3003 kept dying silently. Even with setsid+disown, the process would terminate after ~30s. Caddy proxy returned 502 Bad Gateway.
+- Solution: Replaced the entire Socket.IO WebSocket architecture with Server-Sent Events (SSE):
+  - Built `src/lib/fleet/eventBus.ts` — in-memory singleton event bus (publish/subscribe pattern) that survives across route handlers via `globalThis`. No separate process needed.
+  - Built `src/app/api/live/route.ts` — SSE endpoint that streams all fleet events (vehicle_location_updated, stop_crossed_notification, arrived_at_college_notification, vehicle_offline, initial_state) to admin clients. Uses ReadableStream + EventSource-compatible text/event-stream format. Heartbeat every 25s. Auto-reconnect on client disconnect.
+  - Updated `src/app/api/locations/route.ts` — POST now saves to DB AND publishes to event bus (so SSE clients get notified).
+  - Updated `src/app/api/stop-crossings/route.ts` — POST now saves to DB AND publishes stop_crossed_notification to event bus.
+  - Updated `src/app/api/tracking/stop/route.ts` — POST now publishes vehicle_offline to event bus.
+  - Built `src/lib/fleet/useFleetStream.ts` — new client hook using native `EventSource` API (no socket.io-client needed). Auto-reconnects after 3s on error. Same callback interface as the old socket hook.
+  - Updated `src/components/fleet/Dashboard.tsx` — uses `useFleetStream` instead of `useFleetSocket`.
+  - Updated `src/components/fleet/DriverPortal.tsx` — removed all `emitLocation`/`emitStop`/`emitArrived`/`emitStopSharing` calls. Driver now just POSTs to REST endpoints, which handle broadcasting via the event bus. Added `vehicleName` + `nextStop` to stop-crossings POST body so the notification includes the bus name.
+  - Updated `src/lib/ritians/toast.tsx` — imports types from `useFleetStream` instead of deleted `useFleetSocket`.
+  - Updated `src/lib/fleet/demoSimulator.ts` — imports `VehicleLocationUpdate` type from `useFleetStream`.
+  - Deleted `src/lib/fleet/useFleetSocket.ts` (no longer needed).
+  - Killed the old WebSocket mini-service process (no longer needed).
+- Verified end-to-end with Agent Browser:
+  - Landing page: properly styled with hero, 2 CTA buttons, 4 stat cards ✓
+  - Dashboard: SSE connection status shows "Real-time vehicle monitoring" (connected!) instead of "Connecting..." ✓
+  - 10 vehicle cards in sidebar with live status, speeds updating (39 → 43 → 29 km/h) ✓
+  - Map shows bus markers on dark Leaflet tiles ✓
+  - DEMO badge visible ✓
+  - Where Is My Bus view: properly styled with banner, vehicle selector, progress banner (% complete, last crossed, next stop + ETA, speed), stop list with status badges ✓
+- ESLint: 0 errors, 2 warnings (unused eslint-disable directives — non-blocking).
+- Dev server: 0 runtime errors. Page returns 200. API healthy (10 vehicles).
+
+Stage Summary:
+- Fixed CSS caching issue (Tailwind v4 stale chunk) by adding cache-buster comment.
+- Replaced flaky Socket.IO WebSocket mini-service with robust in-process SSE architecture.
+- No external process needed — event bus lives in the Next.js server's memory.
+- All real-time updates work: driver POSTs location → API saves to DB + publishes to event bus → SSE stream pushes to all admin clients → map markers + vehicle cards + stop-crossing toasts update live.
+- Auto-reconnect on connection drop (every 3s).
