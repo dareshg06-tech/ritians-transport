@@ -23,8 +23,8 @@ function AiCameraAttendance({ routes }: { routes: Route[] }) {
   const [scanning, setScanning] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [checkedIn, setCheckedIn] = useState<{ name: string; regNo: string; time: string; routeNo: string }[]>([]);
-  const [manualName, setManualName] = useState("");
-  const [manualRegNo, setManualRegNo] = useState("");
+  const [manualName, setManualName] = useState("Daresh");
+  const [manualRegNo, setManualRegNo] = useState("2117250030021");
   const [selectedRoute, setSelectedRoute] = useState("");
   const [registeredStudents, setRegisteredStudents] = useState<{ studentName: string; registerNo: string; routeNo: string | null }[]>([]);
 
