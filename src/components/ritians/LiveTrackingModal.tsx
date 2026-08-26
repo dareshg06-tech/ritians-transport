@@ -224,32 +224,60 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
             )}
           </div>
 
-          {/* Tracked buses list */}
+          {/* Tracked buses — route cards like reference */}
           <div style={{ marginTop: 14 }}>
-            <div style={{ fontFamily: "var(--font-head)", fontSize: 13, fontWeight: 600, marginBottom: 10 }}>
-              Currently Tracking ({buses.length} buses)
+            <div style={{ fontFamily: "var(--font-head)", fontSize: 13, fontWeight: 600, marginBottom: 10, color: "var(--text3)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              {buses.length} Buses Live on Map
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 8 }}>
-              {buses.map((b) => (
-                <button
-                  key={b.routeNo}
-                  onClick={() => setSelectedRoute(b.routeNo)}
-                  style={{
-                    textAlign: "left", padding: "10px 12px", borderRadius: "var(--r)",
-                    background: b.routeNo === selectedRoute ? "rgba(255,138,76,0.12)" : "rgba(255,255,255,0.04)",
-                    border: `1px solid ${b.routeNo === selectedRoute ? "rgba(255,138,76,0.4)" : "var(--border)"}`,
-                    cursor: "pointer", transition: "all 0.18s ease",
-                  }}
-                >
-                  <div style={{ fontFamily: "var(--font-head)", fontSize: 12, fontWeight: 600 }}>
-                    Bus {b.no} · {b.routeNo}
-                  </div>
-                  <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>{b.routeName}</div>
-                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--accent2)", marginTop: 4 }}>
-                    {b.coords.lat.toFixed(3)}, {b.coords.lng.toFixed(3)}
-                  </div>
-                </button>
-              ))}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {buses.map((b) => {
+                const r = ALL_ROUTES.find((x) => x.routeNo === b.routeNo);
+                const isSelected = b.routeNo === selectedRoute;
+                // Calculate distance and ETA
+                const distKm = r ? Math.round(haversineDist(r.coords, RIT_CAMPUS_COORDS) / 100) / 10 : 0;
+                const etaMin = r ? Math.max(15, Math.round(distKm * 2)) : 0;
+                const etaH = Math.floor(etaMin / 60);
+                const etaM = etaMin % 60;
+                return (
+                  <button
+                    key={b.routeNo}
+                    onClick={() => setSelectedRoute(b.routeNo)}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 12,
+                      padding: "12px 14px", borderRadius: "var(--r)",
+                      background: isSelected ? "rgba(34,211,238,0.08)" : "rgba(255,255,255,0.03)",
+                      border: `1px solid ${isSelected ? "var(--accent2)" : "var(--border)"}`,
+                      cursor: "pointer", transition: "all 0.18s ease", textAlign: "left",
+                    }}
+                  >
+                    {/* RTE badge */}
+                    <div style={{
+                      width: 48, height: 48, borderRadius: 10, flexShrink: 0,
+                      background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)",
+                      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                    }}>
+                      <div style={{ fontSize: 8, color: "var(--text3)", fontWeight: 700, textTransform: "uppercase" }}>RTE</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#FBBF24", fontFamily: "var(--font-mono)" }}>{b.routeNo}</div>
+                    </div>
+                    {/* Route info */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>
+                        {b.routeName} → RIT Campus
+                      </div>
+                      <div style={{ display: "flex", gap: 12, marginTop: 3, fontSize: 11, color: "var(--text3)" }}>
+                        <span><i className="fas fa-road" style={{ marginRight: 4 }} />{distKm.toFixed(1)} km</span>
+                        <span><i className="fas fa-clock" style={{ marginRight: 4 }} />~{etaH > 0 ? `${etaH}h ` : ""}{etaM}m</span>
+                        {b.speed > 0 && <span style={{ color: "var(--accent2)" }}><i className="fas fa-gauge-high" style={{ marginRight: 4 }} />{Math.round(b.speed)} km/h</span>}
+                      </div>
+                    </div>
+                    {/* Live indicator */}
+                    {isSelected && (
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#34D399", boxShadow: "0 0 8px #34D399", flexShrink: 0 }} />
+                    )}
+                    <i className="fas fa-chevron-right" style={{ color: "var(--text3)", fontSize: 10, flexShrink: 0 }} />
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -266,3 +294,12 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
 
 // keep file format consistent
 export {};
+
+function haversineDist(a: Coord, b: Coord): number {
+  const R = 6371000;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}

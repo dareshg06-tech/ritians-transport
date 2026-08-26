@@ -9,70 +9,119 @@ interface DriverGpsProps {
   onOpenTracking: () => void;
 }
 
+interface GPSData {
+  latitude: number;
+  longitude: number;
+  accuracy: number;
+  speed: number | null;
+  heading: number | null;
+  altitude: number | null;
+  timestamp: number;
+}
+
 export function DriverGpsPortal({ onBack, onOpenTracking }: DriverGpsProps) {
   const { show } = useToast();
   const [selectedRoute, setSelectedRoute] = useState("");
   const [sharing, setSharing] = useState(false);
-  const [position, setPosition] = useState({ lat: 0, lng: 0 });
-  const [tick, setTick] = useState(0);
-  const tickRef = useRef(0);
+  const [gps, setGps] = useState<GPSData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [positionSource, setPositionSource] = useState<"gps" | "network">("gps");
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [tripStartTime, setTripStartTime] = useState<number | null>(null);
+  const watchIdRef = useRef<number | null>(null);
 
-  // Simulated GPS position update — runs every 2s while sharing is active.
-  useEffect(() => {
-    if (!sharing || !selectedRoute) return;
-    const r = routes.find((x) => x.routeNo === selectedRoute);
-    if (!r) return;
-    const stops = routeStops[selectedRoute] || [];
-    let segIdx = 0;
-    let prog = 0;
-    const id = setInterval(() => {
-      const coordsList = stops.map((s) => s.coords || r.coords);
-      if (coordsList.length < 2) return;
-      coordsList[coordsList.length - 1] = RIT_CAMPUS_COORDS;
-      prog += 0.06;
-      if (prog >= 1) {
-        prog = 0;
-        segIdx += 1;
-        if (segIdx >= coordsList.length - 1) segIdx = 0;
-      }
-      const a = coordsList[segIdx];
-      const b = coordsList[Math.min(segIdx + 1, coordsList.length - 1)];
-      setPosition({
-        lat: a.lat + (b.lat - a.lat) * prog,
-        lng: a.lng + (b.lng - a.lng) * prog,
-      });
-      tickRef.current += 1;
-      setTick(tickRef.current);
-    }, 2000);
-    return () => clearInterval(id);
-  }, [sharing, selectedRoute]);
+  const vehicle = routes.find((r) => r.routeNo === selectedRoute);
 
-  const toggleShare = () => {
-    if (!selectedRoute) {
-      show("Select your route first", "error");
-      return;
-    }
-    if (!sharing) {
-      const r = routes.find((x) => x.routeNo === selectedRoute);
-      if (r) setPosition(r.coords);
-      tickRef.current = 0;
-      setTick(0);
-      setSharing(true);
-      show("Live location sharing started");
-    } else {
-      setSharing(false);
-      show("Location sharing stopped");
-    }
+  const handlePosition = (pos: GeolocationPosition) => {
+    const data: GPSData = {
+      latitude: pos.coords.latitude,
+      longitude: pos.coords.longitude,
+      accuracy: pos.coords.accuracy,
+      speed: pos.coords.speed != null ? pos.coords.speed * 3.6 : null,
+      heading: pos.coords.heading,
+      altitude: pos.coords.altitude,
+      timestamp: pos.timestamp,
+    };
+    setGps(data);
+    setError(null);
+
+    if (!vehicle) return;
+
+    // Save to backend
+    fetch("/api/locations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        vehicleId: vehicle.no.toString(),
+        latitude: data.latitude,
+        longitude: data.longitude,
+        accuracy: data.accuracy,
+        speed: data.speed,
+        heading: data.heading,
+        altitude: data.altitude,
+        isSimulated: false,
+      }),
+    }).catch(() => {});
   };
 
-  const r = routes.find((x) => x.routeNo === selectedRoute);
-  const bbox = { minLat: 12.6, maxLat: 13.45, minLng: 79.3, maxLng: 80.45 };
-  const projX = position.lng ? ((position.lng - bbox.minLng) / (bbox.maxLng - bbox.minLng)) * 100 : 50;
-  const projY = position.lng ? (1 - (position.lat - bbox.minLat) / (bbox.maxLat - bbox.minLat)) * 100 : 50;
+  const handleError = (err: GeolocationPositionError) => {
+    if (err.code === 1) setError("Location permission denied. Allow location access in browser settings.");
+    else if (err.code === 2) setError("GPS signal unavailable. Move to an area with better reception.");
+    else if (err.code === 3) setError("GPS request timed out. Retrying…");
+    else setError(err.message);
+  };
+
+  const startSharing = () => {
+    if (!vehicle) { show("Select your route first", "error"); return; }
+    if (!navigator.geolocation) { setError("Geolocation not supported."); return; }
+
+    setError(null);
+    setSharing(true);
+    setTripStartTime(Date.now());
+
+    fetch("/api/tracking/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ vehicleId: vehicle.no.toString() }),
+    }).catch(() => {});
+
+    watchIdRef.current = navigator.geolocation.watchPosition(handlePosition, handleError, {
+      enableHighAccuracy: positionSource === "gps",
+      maximumAge: 0,
+      timeout: 10000,
+    });
+
+    show("Live location sharing started");
+  };
+
+  const stopSharing = () => {
+    if (watchIdRef.current != null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+    setSharing(false);
+    setTripStartTime(null);
+    if (vehicle) {
+      fetch("/api/tracking/stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vehicleId: vehicle.no.toString() }),
+      }).catch(() => {});
+    }
+    show("Location sharing stopped", "info");
+  };
+
+  useEffect(() => {
+    return () => {
+      if (watchIdRef.current != null) navigator.geolocation.clearWatch(watchIdRef.current);
+    };
+  }, []);
+
+  const tripDuration = tripStartTime ? Math.floor((Date.now() - tripStartTime) / 60000) : 0;
 
   return (
     <div className="rt-gps-page">
-      {/* Top nav buttons */}
+      {/* Top nav */}
       <div className="rt-gps-nav">
         <button className="rt-gps-nav-btn" onClick={onBack}>
           <i className="fas fa-arrow-left" /> Back to Home
@@ -86,124 +135,220 @@ export function DriverGpsPortal({ onBack, onOpenTracking }: DriverGpsProps) {
       <div className="rt-gps-card">
         {/* Hero */}
         <div className="rt-gps-hero">
-          <div className="rt-gps-hero-icon">
-            <i className="fas fa-location-arrow" />
-          </div>
+          <div className="rt-gps-hero-icon"><i className="fas fa-location-arrow" /></div>
           <h1>Driver GPS Portal</h1>
-          <p>Share your live location with students on campus.</p>
+          <p>Share your live location with passengers on route</p>
         </div>
 
-        {/* Body */}
         <div className="rt-gps-body">
+          {/* Route info banner (when route selected) */}
+          {vehicle && (
+            <div style={{
+              marginBottom: 14, padding: "10px 14px",
+              background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.3)",
+              borderRadius: "var(--r)", display: "flex", alignItems: "center", gap: 10, fontSize: 12,
+            }}>
+              <i className="fas fa-bus" style={{ color: "#FBBF24" }} />
+              <span style={{ color: "#FDE68A" }}>
+                <strong>BUS {String(vehicle.no).padStart(2, "0")}</strong> → {vehicle.routeName} → RIT Campus
+              </span>
+            </div>
+          )}
+
           {/* Alert */}
           <div className="rt-gps-alert">
             <i className="fas fa-circle-info" />
-            <span>Your location is only visible while tracking is active. It auto-expires after 60 seconds of inactivity.</span>
+            <span>Your location is only visible to passengers while tracking is active. It auto-expires after <strong>60 seconds</strong> of inactivity.</span>
           </div>
 
           {/* Route selector */}
-          <div className="rt-gps-label">Your Route / Vehicle ID</div>
-          <div className="rt-gps-select-wrap">
-            <i className="fas fa-route prefix" />
+          <div className="rt-gps-label" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--text3)", marginBottom: 8 }}>
+            Your Route / Vehicle ID
+          </div>
+          <div className="rt-gps-select-wrap" style={{ marginBottom: 18 }}>
+            <i className="fas fa-bus prefix" style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "var(--text3)", fontSize: 14, pointerEvents: "none" }} />
             <select
               value={selectedRoute}
               onChange={(e) => setSelectedRoute(e.target.value)}
               disabled={sharing}
+              style={{
+                width: "100%", padding: "13px 40px 13px 38px",
+                background: "rgba(255,255,255,0.045)", border: "1px solid var(--border2)", borderRadius: "var(--r)",
+                color: "var(--text)", fontFamily: "var(--font-body)", fontSize: 14, outline: "none", cursor: "pointer",
+                appearance: "none",
+              }}
             >
               <option value="">Select Your Route</option>
               {routes.map((r) => (
                 <option key={r.routeNo} value={r.routeNo}>
-                  Bus {r.no} · {r.routeNo} · {r.routeName}
+                  BUS {String(r.no).padStart(2, "0")} — {r.routeName}
                 </option>
               ))}
             </select>
-            <i className="fas fa-chevron-down chevron" />
+            <i className="fas fa-chevron-down" style={{ position: "absolute", right: 14, top: "50%", transform: "translateY(-50%)", color: "var(--text3)", fontSize: 12, pointerEvents: "none" }} />
+          </div>
+
+          {/* Position source selector */}
+          <div className="rt-gps-label" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--text3)", marginBottom: 8 }}>
+            Position Source
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 8 }}>
+            <button
+              onClick={() => setPositionSource("gps")}
+              disabled={sharing}
+              style={{
+                padding: 12, borderRadius: "var(--r)", border: `2px solid ${positionSource === "gps" ? "var(--accent2)" : "var(--border)"}`,
+                background: positionSource === "gps" ? "rgba(34,211,238,0.08)" : "rgba(255,255,255,0.03)",
+                cursor: sharing ? "not-allowed" : "pointer", transition: "all 0.2s ease", textAlign: "left",
+              }}
+            >
+              <i className="fas fa-satellite" style={{ color: positionSource === "gps" ? "var(--accent2)" : "var(--text3)", fontSize: 18, marginBottom: 4, display: "block" }} />
+              <div style={{ fontSize: 13, fontWeight: 700, color: positionSource === "gps" ? "var(--accent2)" : "var(--text)" }}>GPS</div>
+              <div style={{ fontSize: 11, color: "var(--text3)" }}>High accuracy</div>
+            </button>
+            <button
+              onClick={() => setPositionSource("network")}
+              disabled={sharing}
+              style={{
+                padding: 12, borderRadius: "var(--r)", border: `2px solid ${positionSource === "network" ? "var(--accent2)" : "var(--border)"}`,
+                background: positionSource === "network" ? "rgba(34,211,238,0.08)" : "rgba(255,255,255,0.03)",
+                cursor: sharing ? "not-allowed" : "pointer", transition: "all 0.2s ease", textAlign: "left",
+              }}
+            >
+              <i className="fas fa-tower-broadcast" style={{ color: positionSource === "network" ? "var(--accent2)" : "var(--text3)", fontSize: 18, marginBottom: 4, display: "block" }} />
+              <div style={{ fontSize: 13, fontWeight: 700, color: positionSource === "network" ? "var(--accent2)" : "var(--text)" }}>Network</div>
+              <div style={{ fontSize: 11, color: "var(--text3)" }}>Cell tower / Wi-Fi</div>
+            </button>
+          </div>
+          <div style={{ fontSize: 11, color: "var(--text3)", marginBottom: 14 }}>
+            {positionSource === "gps" ? "Uses device GPS satellites. Most accurate (±5–10 m) but uses more battery." : "Uses cell towers and Wi-Fi. Less accurate but saves battery."}
           </div>
 
           {/* Start/Stop button */}
-          <button
-            className={`rt-gps-share-btn ${sharing ? "sharing" : ""}`}
-            onClick={toggleShare}
-          >
-            <i className={sharing ? "fas fa-stop" : "fas fa-rocket"} />
-            {sharing ? "Stop Sharing Location" : "Start Sharing Location"}
-          </button>
+          {!sharing ? (
+            <button className="rt-gps-share-btn-elite start" onClick={startSharing}>
+              <i className="fas fa-location-dot" /> Start Sharing Location
+            </button>
+          ) : (
+            <button className="rt-gps-share-btn-elite stop" onClick={stopSharing}>
+              <i className="fas fa-stop" /> Stop Sharing Location
+            </button>
+          )}
 
-          {/* Status / Lat / Lng data grid */}
-          <div className="rt-gps-data-grid">
-            <div className="rt-gps-data-row">
-              <span className="rt-gps-data-label">Status</span>
-              <span className={`rt-gps-data-value ${sharing ? "active" : "idle"}`}>
-                {sharing ? "● Live sharing" : "Idle"}
-              </span>
-            </div>
-            <div className="rt-gps-data-row">
-              <span className="rt-gps-data-label">Latitude</span>
-              <span className={`rt-gps-data-value ${sharing && position.lat ? "coords" : "idle"}`}>
-                {sharing && position.lat ? position.lat.toFixed(5) : "—"}
-              </span>
-            </div>
-            <div className="rt-gps-data-row">
-              <span className="rt-gps-data-label">Longitude</span>
-              <span className={`rt-gps-data-value ${sharing && position.lng ? "coords" : "idle"}`}>
-                {sharing && position.lng ? position.lng.toFixed(5) : "—"}
-              </span>
-            </div>
-            {sharing && r && (
-              <>
-                <div className="rt-gps-data-row">
-                  <span className="rt-gps-data-label">Route</span>
-                  <span className="rt-gps-data-value">
-                    {r.routeNo} · {r.routeName}
-                  </span>
-                </div>
-                <div className="rt-gps-data-row">
-                  <span className="rt-gps-data-label">Updated</span>
-                  <span className="rt-gps-data-value">{tick}s ago</span>
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Mini map preview (only when sharing) */}
-          {sharing && position.lat > 0 && (
-            <div className="rt-gps-mini-map">
-              <div className="rt-map-grid" />
-              <div className="rt-gps-mini-map-label">Live Position</div>
-              {r && (routeStops[r.routeNo] || []).map((s, i) => {
-                const c = s.coords || r.coords;
-                const x = ((c.lng - bbox.minLng) / (bbox.maxLng - bbox.minLng)) * 100;
-                const y = (1 - (c.lat - bbox.minLat) / (bbox.maxLat - bbox.minLat)) * 100;
-                const isRIT = s.stop === "RIT Campus";
-                return (
-                  <div
-                    key={i}
-                    className={`rt-map-stop ${isRIT ? "rit" : ""}`}
-                    style={{ left: `${Math.max(2, Math.min(98, x))}%`, top: `${Math.max(2, Math.min(98, y))}%` }}
-                    title={s.stop}
-                  />
-                );
-              })}
-              <div
-                className="rt-map-bus"
-                style={{
-                  left: `${Math.max(2, Math.min(98, projX))}%`,
-                  top: `${Math.max(2, Math.min(98, projY))}%`,
-                  zIndex: 20,
-                }}
-              >
-                <div className="rt-map-bus-pulse" />
-                <div className="rt-map-bus-icon"><i className="fas fa-bus" /></div>
-              </div>
+          {/* Error */}
+          {error && (
+            <div className="rt-gps-error" style={{ marginTop: 14 }}>
+              <i className="fas fa-triangle-exclamation" />
+              <div>{error}</div>
             </div>
           )}
 
-          {/* Footer note */}
-          <div className="rt-footnote-note" style={{ marginTop: 16 }}>
-            <i className="fas fa-info-circle" style={{ color: "var(--accent2)", fontSize: 11, marginRight: 5 }} />
-            Simulated GPS — in production, use <code className="rt-code">navigator.geolocation.watchPosition()</code> or
-            Capacitor's Geolocation plugin, streaming to Firebase Realtime DB.
-          </div>
+          {/* GPS telemetry (when sharing) */}
+          {sharing && (
+            <div style={{ marginTop: 18 }}>
+              {/* Status banner */}
+              {error && (
+                <div style={{ marginBottom: 12, padding: "8px 14px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "var(--r)", fontSize: 12, color: "#FCA5A5", display: "flex", alignItems: "center", gap: 8 }}>
+                  <i className="fas fa-circle-exclamation" /> {error}
+                </div>
+              )}
+
+              {/* Telemetry rows */}
+              <div className="rt-gps-data-grid">
+                <div className="rt-gps-data-row">
+                  <span className="rt-gps-data-label">Status</span>
+                  <span className={`rt-gps-data-value ${gps ? "active" : "idle"}`}>
+                    {gps ? "● Tracking" : "idle"}
+                  </span>
+                </div>
+                <div className="rt-gps-data-row">
+                  <span className="rt-gps-data-label">Position Source</span>
+                  <span className="rt-gps-data-value" style={{ color: "var(--accent2)" }}>
+                    {positionSource === "gps" ? "GPS (satellite)" : "Network (cell/Wi-Fi)"}
+                  </span>
+                </div>
+                <div className="rt-gps-data-row">
+                  <span className="rt-gps-data-label">Latitude</span>
+                  <span className={`rt-gps-data-value ${gps ? "coords" : "idle"}`}>
+                    {gps ? gps.latitude.toFixed(6) : "—"}
+                  </span>
+                </div>
+                <div className="rt-gps-data-row">
+                  <span className="rt-gps-data-label">Longitude</span>
+                  <span className={`rt-gps-data-value ${gps ? "coords" : "idle"}`}>
+                    {gps ? gps.longitude.toFixed(6) : "—"}
+                  </span>
+                </div>
+                <div className="rt-gps-data-row">
+                  <span className="rt-gps-data-label">Speed</span>
+                  <span className={`rt-gps-data-value ${gps?.speed != null ? "orange" : "idle"}`}>
+                    {gps?.speed != null ? `${Math.round(gps.speed)} km/h` : "—"}
+                  </span>
+                </div>
+                <div className="rt-gps-data-row">
+                  <span className="rt-gps-data-label">Heading</span>
+                  <span className={`rt-gps-data-value ${gps?.heading != null ? "" : "idle"}`}>
+                    {gps?.heading != null ? `${Math.round(gps.heading)}°` : "—"}
+                  </span>
+                </div>
+                <div className="rt-gps-data-row">
+                  <span className="rt-gps-data-label">Accuracy</span>
+                  <span className={`rt-gps-data-value ${gps ? "green" : "idle"}`}>
+                    {gps ? `±${Math.round(gps.accuracy)} m` : "—"}
+                  </span>
+                </div>
+                <div className="rt-gps-data-row">
+                  <span className="rt-gps-data-label">Last Update</span>
+                  <span className="rt-gps-data-value" style={{ fontSize: 12 }}>
+                    {gps ? new Date(gps.timestamp).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—"}
+                  </span>
+                </div>
+                <div className="rt-gps-data-row">
+                  <span className="rt-gps-data-label">Trip Status</span>
+                  <span className="rt-gps-data-value" style={{ color: tripStartTime ? "#5EEAB0" : "var(--text3)" }}>
+                    {tripStartTime ? `In progress · ${tripDuration}m` : "Not started"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Advanced controls */}
+              <button
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                style={{
+                  marginTop: 12, width: "100%", padding: "10px 14px",
+                  background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)", borderRadius: "var(--r)",
+                  color: "var(--text2)", fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between",
+                }}
+              >
+                <span><i className="fas fa-sliders" style={{ marginRight: 6 }} /> Advanced controls</span>
+                <i className={`fas fa-chevron-${showAdvanced ? "up" : "down"}`} style={{ fontSize: 10 }} />
+              </button>
+
+              {showAdvanced && (
+                <div style={{ marginTop: 10, padding: 14, background: "rgba(8,11,20,0.5)", border: "1px solid var(--border)", borderRadius: "var(--r)", display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div className="rt-gps-data-row">
+                    <span className="rt-gps-data-label">Altitude</span>
+                    <span className={`rt-gps-data-value ${gps?.altitude != null ? "" : "idle"}`}>
+                      {gps?.altitude != null ? `${Math.round(gps.altitude)} m` : "—"}
+                    </span>
+                  </div>
+                  <div className="rt-gps-data-row">
+                    <span className="rt-gps-data-label">Update Frequency</span>
+                    <span className="rt-gps-data-value" style={{ fontSize: 12 }}>Every 2–5 seconds</span>
+                  </div>
+                  <div className="rt-gps-data-row">
+                    <span className="rt-gps-data-label">Route</span>
+                    <span className="rt-gps-data-value">{vehicle?.routeNo} · {vehicle?.routeName}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Back button */}
+          <button className="rt-btn rt-btn-ghost rt-btn-sm rt-btn-full" style={{ marginTop: 14 }} onClick={onBack}>
+            <i className="fas fa-arrow-left" /> Back to Dashboard
+          </button>
         </div>
       </div>
     </div>
