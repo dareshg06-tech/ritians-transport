@@ -93,20 +93,18 @@ export function FleetMap({
       let marker = existing.get(v.id);
       const isSelected = v.id === selectedVehicleId;
       const html = `<div class="${markerClass(v.status, isSelected)}"><i class="fas fa-bus"></i></div>`;
+      const isLive = v.status === "live" || v.status === "tracking";
       const popupHtml = `
-        <div style="min-width: 220px;">
+        <div style="min-width: 240px; color: #1a1d2a;">
           <div style="font-weight: 700; font-size: 14px; margin-bottom: 6px;">
-            ${v.vehicleName} <span style="font-family: monospace; font-size: 11px; opacity: 0.7;">${v.vehicleNumber}</span>
+            ${v.vehicleName} <span style="font-family: monospace; font-size: 11px; opacity: 0.6;">${v.vehicleNumber}</span>
           </div>
-          <div style="font-size: 12px; margin-bottom: 4px;">Status: <strong style="color: ${
-            v.status === "live" ? "#10b981" :
-            v.status === "tracking" ? "#06b6d4" :
-            v.status === "idle" ? "#fbbf24" : "#94a3b8"
-          }; text-transform: uppercase; letter-spacing: 0.05em;">${v.status}</strong></div>
-          ${v.speed !== undefined ? `<div style="font-size: 12px; margin-bottom: 4px;">Speed: <span style="font-family: monospace; color: #06b6d4;">${Math.round(v.speed)} km/h</span></div>` : ""}
-          ${v.lastSeenAt ? `<div style="font-size: 12px; margin-bottom: 4px;">Updated: <span style="opacity: 0.7;">${timeAgo(new Date(v.lastSeenAt))}</span></div>` : ""}
-          <div style="font-size: 11px; opacity: 0.6; margin-top: 6px;">${v.coords.lat.toFixed(4)}, ${v.coords.lng.toFixed(4)}</div>
-          ${v.routeNo ? `<div style="font-size: 11px; opacity: 0.6; margin-top: 2px;">Route: <span style="font-family: monospace;">${v.routeNo}</span></div>` : ""}
+          <div style="font-size: 12px; margin-bottom: 4px;">Status: <strong style="color: ${isLive ? "#10b981" : "#ef4444"}; text-transform: uppercase; letter-spacing: 0.05em;">${isLive ? "LIVE" : "OFF"}</strong></div>
+          ${v.speed !== undefined && isLive ? `<div style="font-size: 12px; margin-bottom: 4px;">Speed: <span style="font-family: monospace; color: #06b6d4; font-weight: 600;">${Math.round(v.speed)} km/h</span></div>` : ""}
+          ${isLive ? `<div style="font-size: 12px; margin-bottom: 4px;">Updated: <span style="color: #10b981; font-weight: 600;">${v.lastSeenAt ? timeAgo(new Date(v.lastSeenAt)) : "just now"}</span></div>` : ""}
+          <div style="font-size: 11px; color: #64748b; margin-top: 6px;">${v.coords.lat.toFixed(4)}, ${v.coords.lng.toFixed(4)}</div>
+          ${v.routeNo ? `<div style="font-size: 11px; color: #64748b; margin-top: 2px;">Route: <span style="font-family: monospace; font-weight: 600; color: #f59e0b;">${v.routeNo}</span></div>` : ""}
+          <div style="font-size: 11px; color: #64748b; margin-top: 2px;">${v.vehicleName} → RIT Campus</div>
         </div>
       `;
       if (!marker) {

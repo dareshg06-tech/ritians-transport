@@ -244,10 +244,14 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
               {buses.map((b) => {
                 const r = ALL_ROUTES.find((x) => x.routeNo === b.routeNo);
                 const isSelected = b.routeNo === selectedRoute;
+                const isLive = b.speed > 0;
                 const distKm = r ? Math.round(haversineDist(b.coords, RIT_CAMPUS_COORDS) / 100) / 10 : 0;
                 const etaMin = r ? Math.max(1, Math.round(distKm / (Math.max(b.speed, 20) / 60))) : 0;
                 const etaH = Math.floor(etaMin / 60);
                 const etaM = etaMin % 60;
+                const routeStopsList = r ? (routeStops[r.routeNo] || []) : [];
+                const startLocation = routeStopsList.length > 0 ? routeStopsList[0].stop : (r?.routeName || "—");
+                const endLocation = routeStopsList.length > 0 ? routeStopsList[routeStopsList.length - 1].stop : "RIT Campus";
                 return (
                   <button
                     key={b.routeNo}
@@ -265,14 +269,29 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
                       <div style={{ fontSize: 12, fontWeight: 700, color: "#f59e0b", fontFamily: "var(--font-mono)" }}>{b.routeNo}</div>
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "#e2e8f0" }}>{b.routeName} → RIT Campus</div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#e2e8f0" }}>
+                        {startLocation} → {endLocation}
+                      </div>
                       <div style={{ display: "flex", gap: 12, marginTop: 3, fontSize: 11, color: "#64748b" }}>
                         <span><i className="fas fa-road" style={{ marginRight: 4 }} />{distKm.toFixed(1)} km</span>
-                        <span><i className="fas fa-clock" style={{ marginRight: 4 }} />~{etaH > 0 ? `${etaH}h ` : ""}{etaM}m</span>
-                        <span style={{ color: "#06b6d4" }}><i className="fas fa-gauge-high" style={{ marginRight: 4 }} />{Math.round(b.speed)} km/h</span>
+                        {isLive ? (
+                          <>
+                            <span><i className="fas fa-clock" style={{ marginRight: 4 }} />~{etaH > 0 ? `${etaH}h ` : ""}{etaM}m</span>
+                            <span style={{ color: "#06b6d4" }}><i className="fas fa-gauge-high" style={{ marginRight: 4 }} />{Math.round(b.speed)} km/h</span>
+                          </>
+                        ) : null}
                       </div>
                     </div>
-                    {isSelected && <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#10b981", boxShadow: "0 0 8px #10b981", flexShrink: 0 }} />}
+                    {/* Status badge: LIVE (green) or OFF (red) */}
+                    {isLive ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 8px", borderRadius: 99, background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.3)", fontSize: 10, fontWeight: 700, color: "#10b981", flexShrink: 0 }}>
+                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#10b981", boxShadow: "0 0 6px #10b981" }} /> LIVE
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 8px", borderRadius: 99, background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)", fontSize: 10, fontWeight: 700, color: "#ef4444", flexShrink: 0 }}>
+                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#ef4444" }} /> OFF
+                      </div>
+                    )}
                     <i className="fas fa-chevron-right" style={{ color: "#64748b", fontSize: 10, flexShrink: 0 }} />
                   </button>
                 );
@@ -290,9 +309,9 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
                 { icon: "fa-location-crosshairs", label: "Your Location", on: true },
                 { icon: "fa-wifi", label: "Network", on: true },
                 { icon: "fa-paper-plane", label: "Server", on: true },
-                { icon: "fa-tower-broadcast", label: "Live Location", on: !!selectedBus },
-                { icon: "fa-wave-square", label: "Bus Tracking", on: !!selectedBus },
-                { icon: "fa-map-pin", label: "Trip Status", on: true },
+                { icon: "fa-tower-broadcast", label: "Live Location", on: selectedBus?.speed ? selectedBus.speed > 0 : false },
+                { icon: "fa-wave-square", label: "Bus Tracking", on: selectedBus?.speed ? selectedBus.speed > 0 : false },
+                { icon: "fa-map-pin", label: "Trip Status", on: selectedBus?.speed ? selectedBus.speed > 0 : false },
               ].map((item) => (
                 <div key={item.label} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 0" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#94a3b8" }}>
