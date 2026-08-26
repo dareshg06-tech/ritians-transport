@@ -398,8 +398,6 @@ export function LoginScreen() {
               >
                 Create an account
               </button>
-              <br />
-              <span style={{ opacity: 0.6 }}>Demo login: <code style={{ fontFamily: "var(--font-mono)", color: "var(--accent)" }}>123456</code> / <code style={{ fontFamily: "var(--font-mono)", color: "var(--accent)" }}>123456</code></span>
             </>
           ) : (
             <>
@@ -411,8 +409,6 @@ export function LoginScreen() {
               >
                 Log in
               </button>
-              <br />
-              <span style={{ opacity: 0.6 }}>Demo login: <code style={{ fontFamily: "var(--font-mono)", color: "var(--accent)" }}>123456</code> / <code style={{ fontFamily: "var(--font-mono)", color: "var(--accent)" }}>123456</code></span>
             </>
           )}
         </div>

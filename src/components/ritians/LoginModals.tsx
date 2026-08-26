@@ -81,10 +81,6 @@ function AdminLoginModal({ onClose, onSuccess }: { onClose: () => void; onSucces
             {error && (
               <p style={{ fontSize: 11, color: "#FCA5A5", marginTop: 10, textAlign: "center" }}>{error}</p>
             )}
-            <p className="rt-muted" style={{ fontSize: 11, marginTop: 10, textAlign: "center" }}>
-              Demo: <code className="rt-code">admin@college.edu</code> / <code className="rt-code">admin123</code> &nbsp;or&nbsp;
-              <code className="rt-code">123456</code> / <code className="rt-code">123456</code>
-            </p>
           </form>
         </div>
       </div>
@@ -152,10 +148,6 @@ function DriverLoginModal({ onClose, onSuccess }: { onClose: () => void; onSucce
             {error && (
               <p style={{ fontSize: 11, color: "#FCA5A5", marginTop: 10, textAlign: "center" }}>{error}</p>
             )}
-            <p className="rt-muted" style={{ fontSize: 11, marginTop: 10, textAlign: "center" }}>
-              Demo: <code className="rt-code">driver01</code> / <code className="rt-code">driver123</code> &nbsp;or&nbsp;
-              <code className="rt-code">123456</code> / <code className="rt-code">123456</code>
-            </p>
           </form>
         </div>
       </div>

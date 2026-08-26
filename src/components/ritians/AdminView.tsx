@@ -221,10 +221,6 @@ export function AdminView({
                 <li>Editing a route instantly updates the student dashboard.</li>
                 <li>Keep time format consistent: <code className="rt-code">6.10 am</code></li>
               </ul>
-              <div className="rt-cred-note">
-                Default login: <code className="rt-code">admin@college.edu</code> / <code className="rt-code">admin123</code> &nbsp;or&nbsp;
-                <code className="rt-code">123456</code> / <code className="rt-code">123456</code>
-              </div>
             </div>
           </div>
         </div>
