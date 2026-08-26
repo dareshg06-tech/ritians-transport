@@ -19,17 +19,26 @@ interface BusPosition {
   speed: number;
 }
 
+// Load Leaflet map client-side only
+const FleetMap = dynamic(() => import("../fleet/FleetMap.client").then((m) => m.FleetMap), {
+  ssr: false,
+  loading: () => <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text3)" }}><i className="fas fa-spinner fa-spin" /> Loading map…</div>,
+}) as typeof import("../fleet/FleetMap.client").FleetMap;
+type MapVehicle = import("../fleet/FleetMap.client").MapVehicle;
+
 function lerp(a: Coord, b: Coord, t: number): Coord {
   return { lat: a.lat + (b.lat - a.lat) * t, lng: a.lng + (b.lng - a.lng) * t };
 }
 
-function project(c: Coord, bbox: { minLat: number; maxLat: number; minLng: number; maxLng: number }) {
-  const x = ((c.lng - bbox.minLng) / (bbox.maxLng - bbox.minLng)) * 100;
-  const y = (1 - (c.lat - bbox.minLat) / (bbox.maxLat - bbox.minLat)) * 100;
-  return { x: Math.max(2, Math.min(98, x)), y: Math.max(2, Math.min(98, y)) };
+function haversineDist(a: Coord, b: Coord): number {
+  const R = 6371000;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
 }
 
-const BBOX = { minLat: 12.6, maxLat: 13.45, minLng: 79.3, maxLng: 80.45 };
 const TRACKED_ROUTE_NOS = ["R01", "R12", "R24", "R16B", "R29", "R05"];
 
 function initialBuses(): BusPosition[] {
@@ -40,15 +49,6 @@ function initialBuses(): BusPosition[] {
     const startCoords = firstStop?.coords || r.coords;
     return { routeNo: r.routeNo, routeName: r.routeName, no: r.no, coords: startCoords, progress: 0, segIdx: 0, speed: 35 };
   });
-}
-
-function haversineDist(a: Coord, b: Coord): number {
-  const R = 6371000;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(b.lat - a.lat);
-  const dLng = toRad(b.lng - a.lng);
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(h));
 }
 
 export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
@@ -76,28 +76,35 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
           const a = coordsList[newSeg];
           const c = coordsList[Math.min(newSeg + 1, coordsList.length - 1)];
           const newCoords = lerp(a, c, newProg);
-          const newSpeed = 30 + Math.sin(Date.now() / 30000 + b.routeNo.charCodeAt(0)) * 10;
+          const newSpeed = 25 + Math.sin(Date.now() / 30000 + b.routeNo.charCodeAt(0)) * 12;
           return { ...b, segIdx: newSeg, progress: newProg, coords: newCoords, speed: newSpeed };
         })
       );
       tickRef.current += 1;
       setTick(tickRef.current);
-    }, 1500);
+    }, 2000);
     return () => clearInterval(id);
   }, [open]);
 
   if (!open) return null;
 
   const selRoute = ALL_ROUTES.find((r) => r.routeNo === selectedRoute);
-  const selStops = routeStops[selectedRoute] || [];
-  const selCoords: Coord[] = selStops.map((s) => s.coords || selRoute?.coords || RIT_CAMPUS_COORDS);
-  if (selCoords.length > 0) selCoords[selCoords.length - 1] = RIT_CAMPUS_COORDS;
-  const selPoints = selCoords.map((c) => project(c, BBOX));
-  const polylinePoints = selPoints.map((p) => `${p.x},${p.y}`).join(" ");
-
   const selectedBus = buses.find((b) => b.routeNo === selectedRoute);
   const busDistanceKm = selectedBus ? haversineDist(selectedBus.coords, RIT_CAMPUS_COORDS) / 1000 : 0;
-  const etaMin = selectedBus ? Math.max(1, Math.round(busDistanceKm / (selectedBus.speed / 60))) : 0;
+  const etaMin = selectedBus ? Math.max(1, Math.round(busDistanceKm / (Math.max(selectedBus.speed, 20) / 60))) : 0;
+
+  // Build map vehicles
+  const mapVehicles: MapVehicle[] = buses.map((b) => ({
+    id: b.routeNo,
+    vehicleNumber: `BUS-${String(b.no).padStart(3, "0")}`,
+    vehicleName: b.routeName,
+    status: "live" as const,
+    coords: b.coords,
+    speed: b.speed,
+    lastSeenAt: new Date().toISOString(),
+    routeNo: b.routeNo,
+    selected: b.routeNo === selectedRoute,
+  }));
 
   return (
     <div className="rt-modal-overlay" onClick={onClose} style={{ padding: 0, alignItems: "stretch", justifyContent: "stretch" }}>
@@ -145,13 +152,10 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
         </div>
 
         {/* Scrollable body */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px 8px", maxWidth: 800, margin: "0 auto", width: "100%" }}>
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px 8px", maxWidth: 900, margin: "0 auto", width: "100%" }}>
           {/* Stats row */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
-            {/* Bus Distance card */}
-            <div style={{
-              padding: 16, borderRadius: 12, background: "#13161c", border: "1px solid #1e2330",
-            }}>
+            <div style={{ padding: 16, borderRadius: 12, background: "#13161c", border: "1px solid #1e2330" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, color: "#06b6d4", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                 <i className="fas fa-globe" /> Bus Distance
               </div>
@@ -161,10 +165,7 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
               <div style={{ fontSize: 18, fontWeight: 700, color: "#fff" }}>{busDistanceKm.toFixed(1)} km</div>
               <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>From your live location</div>
             </div>
-            {/* ETA to RIT card */}
-            <div style={{
-              padding: 16, borderRadius: 12, background: "#13161c", border: "1px solid #1e2330",
-            }}>
+            <div style={{ padding: 16, borderRadius: 12, background: "#13161c", border: "1px solid #1e2330" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, color: "#10b981", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                 <i className="fas fa-clock" /> ETA to RIT
               </div>
@@ -178,7 +179,7 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
             </div>
           </div>
 
-          {/* Map section */}
+          {/* Map section — real Leaflet map */}
           <div style={{ padding: 12, borderRadius: 12, background: "#13161c", border: "1px solid #1e2330", marginBottom: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#06b6d4", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
@@ -202,43 +203,15 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
                 </button>
               </div>
             </div>
-            <div className="rt-map-container" style={{ height: 300 }}>
-              <div className="rt-map-grid" />
-              {selPoints.length > 1 && (
-                <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }} viewBox="0 0 100 100" preserveAspectRatio="none">
-                  <polyline points={polylinePoints} fill="none" stroke="#06b6d4" strokeWidth="0.5" strokeDasharray="2 1.5" vectorEffect="non-scaling-stroke" style={{ filter: "drop-shadow(0 0 2px rgba(6,182,212,0.5))" }} />
-                </svg>
-              )}
-              {selStops.map((s, i) => {
-                const c = s.coords || selRoute?.coords || RIT_CAMPUS_COORDS;
-                const p = project(c, BBOX);
-                const isRIT = s.stop === "RIT Campus";
-                return <div key={i} className={`rt-map-stop ${isRIT ? "rit" : ""}`} style={{ left: `${p.x}%`, top: `${p.y}%` }} title={`${s.stop} · ${s.time}`} />;
-              })}
-              {buses.map((b) => {
-                const p = project(b.coords, BBOX);
-                const isSelected = b.routeNo === selectedRoute;
-                return (
-                  <div key={b.routeNo} className="rt-map-bus" style={{ left: `${p.x}%`, top: `${p.y}%`, opacity: isSelected ? 1 : 0.5, zIndex: isSelected ? 20 : 10 }}>
-                    {isSelected && <div className="rt-map-bus-pulse" />}
-                    <div className="rt-map-bus-icon" style={isSelected ? {} : { transform: "scale(0.85)" }}>
-                      <i className="fas fa-bus" />
-                    </div>
-                  </div>
-                );
-              })}
-              <div className="rt-map-legend">
-                <div className="rt-map-legend-item"><span className="rt-dot rt-dot-on" /> Bus (live)</div>
-                <div className="rt-map-legend-item"><span className="rt-dot rt-dot-early" /> Boarding stop</div>
-                <div className="rt-map-legend-item"><span className="rt-dot rt-dot-late" /> RIT Campus</div>
-              </div>
-              {selectedBus && (
-                <div className="rt-map-info">
-                  <div className="title">{selectedBus.routeNo} · {selectedBus.routeName}</div>
-                  <div className="coord">LAT: {selectedBus.coords.lat.toFixed(4)} · LNG: {selectedBus.coords.lng.toFixed(4)}</div>
-                  <div className="coord" style={{ marginTop: 2, color: "var(--text2)" }}>Speed: {Math.round(selectedBus.speed)} km/h · Updated {tick}s ago</div>
-                </div>
-              )}
+            <div style={{ height: 320, borderRadius: 10, overflow: "hidden", position: "relative" }}>
+              <FleetMap
+                vehicles={mapVehicles}
+                selectedVehicleId={selectedRoute}
+                onSelectVehicle={(id) => setSelectedRoute(id)}
+                showRouteForVehicleId={selectedRoute}
+                height="100%"
+                centerOnSelected={followToggle}
+              />
             </div>
           </div>
 
@@ -271,8 +244,8 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
               {buses.map((b) => {
                 const r = ALL_ROUTES.find((x) => x.routeNo === b.routeNo);
                 const isSelected = b.routeNo === selectedRoute;
-                const distKm = r ? Math.round(haversineDist(r.coords, RIT_CAMPUS_COORDS) / 100) / 10 : 0;
-                const etaMin = r ? Math.max(15, Math.round(distKm * 2)) : 0;
+                const distKm = r ? Math.round(haversineDist(b.coords, RIT_CAMPUS_COORDS) / 100) / 10 : 0;
+                const etaMin = r ? Math.max(1, Math.round(distKm / (Math.max(b.speed, 20) / 60))) : 0;
                 const etaH = Math.floor(etaMin / 60);
                 const etaM = etaMin % 60;
                 return (
@@ -334,7 +307,7 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
               ))}
             </div>
             <div style={{ marginTop: 12, fontSize: 11, color: "#64748b" }}>
-              Live updates from driver every 2 seconds. Last update: {tick > 0 ? `${tick}s ago` : "never"}.
+              Live updates from driver every 2 seconds. Last update: {tick > 0 ? `${tick * 2}s ago` : "never"}.
             </div>
           </div>
 
