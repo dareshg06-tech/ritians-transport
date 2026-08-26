@@ -13,19 +13,16 @@ export interface FleetVehicle {
   destination: Coord; // main route destination coords
 }
 
-// Static mapping (10 vehicles, in Bus One through Bus Ten order)
-export const FLEET: Omit<FleetVehicle, "id">[] = [
-  { vehicleNumber: "BUS-001", vehicleName: "Bus One",   driverName: "Kumar",   routeNo: "R01",  destination: { lat: 13.2167, lng: 80.3000 } },
-  { vehicleNumber: "BUS-002", vehicleName: "Bus Two",   driverName: "Ravi",    routeNo: "R12",  destination: { lat: 13.2767, lng: 80.2500 } },
-  { vehicleNumber: "BUS-003", vehicleName: "Bus Three", driverName: "Suresh",  routeNo: "R24",  destination: { lat: 12.9100, lng: 79.3300 } },
-  { vehicleNumber: "BUS-004", vehicleName: "Bus Four",   driverName: "Anand",   routeNo: "R16B", destination: { lat: 12.8900, lng: 80.2270 } },
-  { vehicleNumber: "BUS-005", vehicleName: "Bus Five",  driverName: "Mohan",   routeNo: "R29",  destination: { lat: 12.9800, lng: 80.2200 } },
-  { vehicleNumber: "BUS-006", vehicleName: "Bus Six",    driverName: "Vinod",   routeNo: "R05",  destination: { lat: 13.0290, lng: 80.2330 } },
-  { vehicleNumber: "BUS-007", vehicleName: "Bus Seven",  driverName: "Deepak",  routeNo: "R08",  destination: { lat: 12.9160, lng: 80.1440 } },
-  { vehicleNumber: "BUS-008", vehicleName: "Bus Eight",  driverName: "Prakash",  routeNo: "R03A", destination: { lat: 13.0773, lng: 80.2133 } },
-  { vehicleNumber: "BUS-009", vehicleName: "Bus Nine",   driverName: "Arjun",   routeNo: "R16",  destination: { lat: 12.9300, lng: 80.2500 } },
-  { vehicleNumber: "BUS-010", vehicleName: "Bus Ten",    driverName: "Bala",    routeNo: "R27",  destination: { lat: 13.1100, lng: 80.1100 } },
-];
+// Fleet ↔ Route mapping — auto-generated from the 52 routes
+import { routes as ALL_ROUTES } from "./data";
+
+export const FLEET: Omit<FleetVehicle, "id">[] = ALL_ROUTES.map((r, i) => ({
+  vehicleNumber: `BUS-${String(i + 1).padStart(3, "0")}`,
+  vehicleName: r.routeName,
+  driverName: `Driver ${i + 1}`,
+  routeNo: r.routeNo,
+  destination: r.coords,
+}));
 
 /**
  * Get stop list for a route, with approximate coords for each stop.

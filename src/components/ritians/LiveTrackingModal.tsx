@@ -39,7 +39,8 @@ function haversineDist(a: Coord, b: Coord): number {
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
-const TRACKED_ROUTE_NOS = ["R01", "R12", "R24", "R16B", "R29", "R05"];
+// Track ALL routes — user wants "where is my bus" for all buses
+const TRACKED_ROUTE_NOS = ALL_ROUTES.map((r) => r.routeNo);
 
 function initialBuses(): BusPosition[] {
   return TRACKED_ROUTE_NOS.map((rno) => {
