@@ -10,10 +10,22 @@ import React, { createContext, useContext, useCallback, useState } from "react";
 
 export type Role = "student" | "admin" | "driver";
 
+export interface StudentProfile {
+  fullName: string;
+  phone: string;
+  registerNumber: string;
+  department: string;
+  year: string;
+  section: string;
+  routeNo: string;
+  boardingPoint: string;
+}
+
 export interface Session {
   role: Role;
   identifier: string; // register number / email / driver id
   displayName: string;
+  profile?: StudentProfile; // attached for registered student accounts
   loggedInAt: number;
 }
 
@@ -21,7 +33,7 @@ interface AuthContextValue {
   session: Session | null;
   isAuthed: boolean;
   login: (identifier: string, password: string) => { ok: boolean; error?: string };
-  register: (registerNumber: string, password: string, displayName?: string) => { ok: boolean; error?: string };
+  register: (profile: StudentProfile, password: string) => { ok: boolean; error?: string };
   logout: () => void;
   // role-specific logins from inside the dashboard
   adminUnlocked: boolean;
@@ -43,7 +55,7 @@ const ACCOUNTS_KEY = "ritians_registered_accounts_v1";
 // "Create an account" work in this clone without a backend auth service.
 interface RegisteredAccount {
   password: string;
-  displayName: string;
+  profile: StudentProfile;
   createdAt: number;
 }
 
@@ -156,7 +168,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const s: Session = {
         role: "student",
         identifier: id,
-        displayName: acct.displayName || id,
+        displayName: acct.profile.fullName || id,
+        profile: acct.profile,
         loggedInAt: Date.now(),
       };
       setSession(s);
@@ -166,8 +179,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { ok: false, error: "Invalid credentials. Try 123456 / 123456." };
   }, []);
 
-  const register = useCallback((registerNumber: string, password: string, displayName?: string) => {
-    const id = registerNumber.trim();
+  const register = useCallback((profile: StudentProfile, password: string) => {
+    const id = profile.registerNumber.trim();
     const pw = password.trim();
     if (!id || !pw) {
       return { ok: false, error: "Register number and password are required." };
@@ -175,8 +188,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (id.length < 3) {
       return { ok: false, error: "Register number must be at least 3 characters." };
     }
-    if (pw.length < 4) {
-      return { ok: false, error: "Password must be at least 4 characters." };
+    if (pw.length < 6) {
+      return { ok: false, error: "Password must be at least 6 characters." };
     }
     // Don't allow registering with reserved identifiers
     if (id === UNIVERSAL_LOGIN || id === ADMIN_EMAIL || id === DRIVER_ID) {
@@ -186,9 +199,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (accounts[id]) {
       return { ok: false, error: "An account with this register number already exists." };
     }
+    const cleanProfile: StudentProfile = {
+      fullName: profile.fullName.trim(),
+      phone: profile.phone.trim(),
+      registerNumber: id,
+      department: profile.department,
+      year: profile.year,
+      section: profile.section.trim(),
+      routeNo: profile.routeNo,
+      boardingPoint: profile.boardingPoint,
+    };
     accounts[id] = {
       password: pw,
-      displayName: displayName?.trim() || id,
+      profile: cleanProfile,
       createdAt: Date.now(),
     };
     saveAccounts(accounts);
@@ -196,7 +219,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const s: Session = {
       role: "student",
       identifier: id,
-      displayName: accounts[id].displayName,
+      displayName: cleanProfile.fullName || id,
+      profile: cleanProfile,
       loggedInAt: Date.now(),
     };
     setSession(s);
