@@ -1,34 +1,73 @@
 import { NextRequest, NextResponse } from "next/server";
 import ZAI from "z-ai-web-dev-sdk";
-import { db } from "@/lib/db";
+import { routes, routeStops, parseTime, formatTime, AFTERNOON_DEPARTURE, MORNING_ARRIVAL_MIN, getReturnArrival } from "@/lib/ritians/data";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const SYSTEM_PROMPT = `
-You are "Ritians Fleet Assistant" — an AI chatbot for the Ritians Transport live fleet tracking platform at RIT Chennai (Rajalakshmi Institute of Technology, Kuthambakkam, Chennai).
+// Build a compact but complete route catalog so the LLM can answer
+// any question about routes, stops, times, or boarding points.
+function buildRouteCatalog(): string {
+  const lines: string[] = [];
+  for (const r of routes) {
+    const stops = routeStops[r.routeNo] || [];
+    const stopNames = stops.map((s, i) => `${i + 1}. ${s.stop} (${s.time})`).join("; ");
+    const morningStart = parseTime(r.start);
+    const tripDurationMin = MORNING_ARRIVAL_MIN - morningStart; // minutes from start → RIT Campus (7.40 am)
+    const afternoonArrival = getReturnArrival(r.routeNo);
+    lines.push(
+      `${r.routeNo} ${r.routeName} — Bus #${r.no}, starts ${r.start} (morning), arrives RIT Campus 7.40 am, ` +
+        `trip duration ~${Math.floor(tripDurationMin / 60)}h ${tripDurationMin % 60}m; ` +
+        `afternoon departs RIT 3.40 pm, arrives ${r.routeName} ${afternoonArrival}. ` +
+        `Boarding stops (${stops.length}): ${stopNames}`
+    );
+  }
+  return lines.join("\n");
+}
 
-Key facts:
-- 10 buses are tracked (Bus One through Bus Ten), each assigned to a route from R01 through R29B
-- Buses arrive at RIT Campus at 7.40 am (morning trip) and depart from RIT Campus at 3.40 pm (afternoon return trip)
-- Each bus has a list of boarding stops with times; the platform tracks when each bus crosses each stop ("Where Is My Bus" feature, similar to the Chalo app or "Where Is My Train")
-- Live GPS data: latitude, longitude, speed, heading, accuracy — updated every 2-5 seconds via WebSocket
-- When a bus crosses a stop, a notification is sent and the stop crossing is recorded with a timestamp
-- Distance from departure to college: calculated from GPS positions
-- ETA to next stop: based on current speed and Haversine distance to that stop's coordinates
-- After a bus arrives at RIT Campus, its tracking session resets for the next day
+const ROUTE_CATALOG = buildRouteCatalog();
 
-Routes and examples:
-- R01 Ennore — 10 stops, ~1h 50m morning trip
-- R12 Minjur — earliest start (5.45 am), ~1h 55m
-- R24 Arcot — farthest (5.25 am), ~2h 15m
-- R29B Sivanthangal — latest start (7.05 am), ~35m
+const SYSTEM_PROMPT = `You are **Ritians Assistant** — the AI chatbot for the Ritians Transport portal at RIT Chennai (Rajalakshmi Institute of Technology, Kuthambakkam, Chennai).
 
-When asked about a specific bus's location, ETA, or stop crossings, give a concise answer based on the live context provided in the user message. If you don't know the exact live status, suggest the user check the dashboard or ask specifically for "where is Bus Five".
+## Your Role
+Help students, drivers, and admins with questions about:
+- Bus routes (51 routes, R01 through R29B)
+- Boarding points / stops and their times
+- Morning schedule (buses start from their origin and arrive RIT Campus at 7.40 am)
+- Afternoon return schedule (buses depart RIT Campus at 3.40 pm and follow the morning route in reverse)
+- Login credentials
+- How to use the portal features (Admin, Driver, Live Tracking, Where Is My Bus, etc.)
 
-For login questions: use 123456 / 123456 (works for any role).
+## Key Facts
+- **Login**: \`123456\` / \`123456\` (works for any role — student, admin, driver)
+- **Total routes**: 51 (R01, R01A, R01B, R02, R03, R03A, R03B, R04, R05, R05A, R06, R07, R08, R08A, R09, R09A, R10, R11, R11A, R12, R13, R13A, R14, R14A, R15, R15A, R16, R16A, R16B, R17, R17A, R18, R18A, R18B, R19, R19A, R20, R21, R22, R22A, R23, R24, R25, R25A, R26, R27, R27A, R28, R29, R29A, R29B)
+- **Morning arrival**: All buses arrive at RIT Campus at **7.40 am**
+- **Afternoon departure**: All buses leave RIT Campus at **3.40 pm** and follow the morning route in reverse
+- **Earliest bus**: R24 Arcot — starts at **5.25 am** (~2h 15m trip)
+- **Latest bus**: R29B Sivanthangal — starts at **7.05 am** (~35m trip)
+- **RIT Campus coords**: 13.0397, 80.0740 (Kuthambakkam, Chennai)
 
-Be friendly, concise (under 4 sentences), use **bold** for emphasis and \`code\` for technical values. If asked something unrelated to fleet tracking, gently redirect.
+## Features
+- **Student view**: Browse all 51 routes, search by route/boarding point/stop, click any row to see detailed boarding stops with times and coordinates
+- **Return Trip tab**: Shows afternoon departure schedule (3.40 pm) for all 51 buses with calculated arrival times
+- **Admin tab** (login admin@college.edu / admin123 or 123456 / 123456): Add/edit/delete routes
+- **Driver tab** (login driver01 / driver123 or 123456 / 123456): Update parking location for students to see
+- **Live Tracking**: Simulated GPS map showing buses moving along routes
+- **Driver GPS Portal**: Real GPS sharing via \`navigator.geolocation.watchPosition()\`
+- **Where Is My Bus**: Shows which stops a bus has crossed + ETA to next stop (like Chalo app)
+- **Stops Modal**: Morning/Afternoon toggle showing boarding stops with lat/long coordinates
+
+## Answering Guidelines
+1. **Be accurate** — use the ROUTE CATALOG below to answer questions about specific routes, stops, and times. Don't make up information.
+2. **Be concise** — under 4 sentences unless the user asks for detail.
+3. **Use formatting** — \`code\` for route numbers/times, **bold** for emphasis.
+4. **Stop-specific questions**: When asked "which bus passes via X" or "does R01 go through Y", check the route's boarding stops list in the catalog.
+5. **Time questions**: When asked "what time does the bus reach X stop", give the scheduled time from the catalog.
+6. **Distance/ETA**: When asked about distance or ETA, mention that the platform calculates it from GPS positions in real-time — suggest checking the Live Tracking or Where Is My Bus views.
+7. **Login help**: Always mention \`123456\` / \`123456\` works for any role.
+
+## ROUTE CATALOG
+${ROUTE_CATALOG}
 `;
 
 export async function POST(req: NextRequest) {
@@ -39,36 +78,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No messages provided" }, { status: 400 });
     }
 
-    // Gather live context: all vehicles with last positions + today's stop crossings
-    let liveContext = "";
-    try {
-      const vehicles = await db.vehicle.findMany({ orderBy: { vehicleName: "asc" } });
-      const startOfDay = new Date();
-      startOfDay.setHours(0, 0, 0, 0);
-      const crossings = await db.stopCrossing.findMany({
-        where: { crossedAt: { gte: startOfDay } },
-        orderBy: { crossedAt: "asc" },
-      });
-
-      const lines: string[] = ["LIVE FLEET STATE:"];
-      for (const v of vehicles) {
-        const vCrossings = crossings.filter((c) => c.vehicleId === v.id);
-        const lastCrossed = vCrossings[vCrossings.length - 1];
-        lines.push(
-          `- ${v.vehicleName} (${v.vehicleNumber}, route ${v.routeNo}): status=${v.status}, ` +
-            `lat=${v.lastLat ?? "?"}, lng=${v.lastLng ?? "?"}, ` +
-            `speed=${v.lastSpeed ?? 0} km/h, ` +
-            `lastSeen=${v.lastSeenAt ? new Date(v.lastSeenAt).toISOString() : "never"}` +
-            (lastCrossed ? `, last crossed stop="${lastCrossed.stopName}" at ${new Date(lastCrossed.crossedAt).toLocaleTimeString("en-IN")}` : "")
-        );
-      }
-      liveContext = lines.join("\n");
-    } catch (_) {
-      // ignore DB errors — fall back without context
-    }
-
     const chatMessages = [
-      { role: "system" as const, content: SYSTEM_PROMPT + (liveContext ? "\n\n" + liveContext : "") },
+      { role: "system" as const, content: SYSTEM_PROMPT },
       ...messages.map((m: { role: string; content: string }) => ({
         role: m.role as "user" | "assistant",
         content: m.content,

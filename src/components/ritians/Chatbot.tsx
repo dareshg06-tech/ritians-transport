@@ -8,10 +8,10 @@ interface ChatMessage {
 }
 
 const SUGGESTIONS = [
-  "What time does R24 Arcot start?",
-  "When do buses leave campus?",
+  "Which bus goes through Kasimedu?",
+  "What time does R01 reach Lift Gate?",
+  "When do buses leave campus in the afternoon?",
   "How many routes are there?",
-  "Which bus starts earliest?",
 ];
 
 export function Chatbot() {
