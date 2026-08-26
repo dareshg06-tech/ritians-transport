@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Route, parseTime, timeCat, isToday } from "@/lib/ritians/data";
+import { Route, parseTime, timeCat, isToday, routeStops } from "@/lib/ritians/data";
 import { useToast } from "@/lib/ritians/toast";
 
 export interface ParkingInfo {
@@ -39,9 +39,14 @@ export function StudentView({ routes, parking, onOpenStops }: StudentViewProps) 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     let arr = routes.filter((r) => {
+      // Build searchable text: route number, name, start time, timing label
       let txt = `${r.no} ${r.routeNo} ${r.routeName} ${r.start} ${r.timing}`;
-      // include stop names in search
-      // lazy import of routeStops
+      // Include boarding stop names + their times so searching
+      // "Kasimedu" or "Kalmandapam" returns every bus that passes via that stop.
+      const stops = routeStops[r.routeNo];
+      if (stops && stops.length > 0) {
+        txt += " " + stops.map((s) => `${s.stop} ${s.time}`).join(" ");
+      }
       return txt.toLowerCase().includes(q);
     });
     if (sort === "time-asc") arr = [...arr].sort((a, b) => parseTime(a.start) - parseTime(b.start));
@@ -128,7 +133,7 @@ export function StudentView({ routes, parking, onOpenStops }: StudentViewProps) 
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search by route, area, stop, time…"
+                  placeholder="Search by route, boarding point, area, stop, time…"
                 />
               </div>
               <select
