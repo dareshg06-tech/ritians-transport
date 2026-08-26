@@ -327,16 +327,21 @@ export function StudentView({ routes, parking, onOpenStops }: StudentViewProps) 
       </div>
 
       {/* About + Report */}
-      <AboutReport onSubmit={submitFeedback} />
+      <AboutReport onSubmit={(data) => submitFeedback(data, session)} />
     </div>
   );
 }
 
-function submitFeedback(data: { type: string; message: string; tags: string[] }) {
+function submitFeedback(data: { type: string; message: string; tags: string[] }, session: { profile?: { fullName?: string; registerNumber?: string; routeNo?: string }; displayName?: string; identifier?: string } | null) {
   fetch("/api/feedback", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
+    body: JSON.stringify({
+      ...data,
+      tags: data.tags.join(","),
+      studentName: session?.profile?.fullName || session?.displayName || "Anonymous",
+      routeNo: session?.profile?.routeNo || null,
+    }),
   }).catch(() => {});
 }
 
