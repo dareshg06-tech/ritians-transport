@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Route, parkingLocations, isToday } from "@/lib/ritians/data";
 import { useToast } from "@/lib/ritians/toast";
+import { useAuth } from "@/lib/ritians/auth";
 import type { ParkingInfo } from "./StudentView";
 
 interface DriverViewProps {
@@ -316,6 +317,7 @@ function AiCameraAttendance({ routes }: { routes: Route[] }) {
 
 export function DriverView({ routes, parking, onPublish, onBack, onOpenDriverGps }: DriverViewProps) {
   const { show } = useToast();
+  const { resetRoleUnlocks } = useAuth();
   const [routeNo, setRouteNo] = useState("");
   const [locSel, setLocSel] = useState("");
   const [customLoc, setCustomLoc] = useState("");
@@ -356,6 +358,13 @@ export function DriverView({ routes, parking, onPublish, onBack, onOpenDriverGps
           </div>
           <button className="rt-btn rt-btn-ghost rt-btn-sm" onClick={onBack}>
             <i className="fas fa-arrow-left" /> Back
+          </button>
+          <button
+            className="rt-btn rt-btn-sm"
+            style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)", color: "#FCA5A5" }}
+            onClick={() => { resetRoleUnlocks(); onBack(); show("Driver logged out"); }}
+          >
+            <i className="fas fa-right-from-bracket" /> Logout
           </button>
         </div>
       </div>

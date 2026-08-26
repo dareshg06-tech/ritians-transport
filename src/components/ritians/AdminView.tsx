@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Route, parseTime } from "@/lib/ritians/data";
 import { useToast } from "@/lib/ritians/toast";
+import { useAuth } from "@/lib/ritians/auth";
 
 interface AdminViewProps {
   routes: Route[];
@@ -17,6 +18,7 @@ export function AdminView({
   routes, onAddRoute, onUpdateRoute, onDeleteRoute, onBack, onOpenQuickLink,
 }: AdminViewProps) {
   const { show } = useToast();
+  const { resetRoleUnlocks } = useAuth();
   const [editIdx, setEditIdx] = useState<number | null>(null);
   const [routeNo, setRouteNo] = useState("");
   const [routeName, setRouteName] = useState("");
@@ -93,6 +95,13 @@ export function AdminView({
             </div>
             <button className="rt-btn rt-btn-ghost rt-btn-sm" onClick={onBack}>
               <i className="fas fa-arrow-left" /> Back
+            </button>
+            <button
+              className="rt-btn rt-btn-sm"
+              style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)", color: "#FCA5A5" }}
+              onClick={() => { resetRoleUnlocks(); onBack(); show("Admin logged out"); }}
+            >
+              <i className="fas fa-right-from-bracket" /> Logout
             </button>
           </div>
         </div>
