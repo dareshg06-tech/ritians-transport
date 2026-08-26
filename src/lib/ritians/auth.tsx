@@ -21,6 +21,7 @@ interface AuthContextValue {
   session: Session | null;
   isAuthed: boolean;
   login: (identifier: string, password: string) => { ok: boolean; error?: string };
+  register: (registerNumber: string, password: string, displayName?: string) => { ok: boolean; error?: string };
   logout: () => void;
   // role-specific logins from inside the dashboard
   adminUnlocked: boolean;
@@ -35,6 +36,33 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 const STORAGE_KEY = "ritians_session_v1";
 const ADMIN_KEY = "ritians_admin_unlocked_v1";
 const DRIVER_KEY = "ritians_driver_unlocked_v1";
+const ACCOUNTS_KEY = "ritians_registered_accounts_v1";
+
+// Registered accounts are stored in localStorage as a Record<registerNumber, {password, displayName}>.
+// This is client-side only — NOT secure for production. It's the simplest way to make
+// "Create an account" work in this clone without a backend auth service.
+interface RegisteredAccount {
+  password: string;
+  displayName: string;
+  createdAt: number;
+}
+
+function loadAccounts(): Record<string, RegisteredAccount> {
+  if (typeof window === "undefined") return {};
+  try {
+    const s = localStorage.getItem(ACCOUNTS_KEY);
+    return s ? JSON.parse(s) : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function saveAccounts(accts: Record<string, RegisteredAccount>) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accts));
+  } catch (_) {}
+}
 
 // Universal credentials (per user request)
 const UNIVERSAL_LOGIN = "123456";
@@ -121,7 +149,59 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (_) {}
       return { ok: true };
     }
+    // Check registered accounts (created via "Create an account")
+    const accounts = loadAccounts();
+    const acct = accounts[id];
+    if (acct && acct.password === pw) {
+      const s: Session = {
+        role: "student",
+        identifier: id,
+        displayName: acct.displayName || id,
+        loggedInAt: Date.now(),
+      };
+      setSession(s);
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch (_) {}
+      return { ok: true };
+    }
     return { ok: false, error: "Invalid credentials. Try 123456 / 123456." };
+  }, []);
+
+  const register = useCallback((registerNumber: string, password: string, displayName?: string) => {
+    const id = registerNumber.trim();
+    const pw = password.trim();
+    if (!id || !pw) {
+      return { ok: false, error: "Register number and password are required." };
+    }
+    if (id.length < 3) {
+      return { ok: false, error: "Register number must be at least 3 characters." };
+    }
+    if (pw.length < 4) {
+      return { ok: false, error: "Password must be at least 4 characters." };
+    }
+    // Don't allow registering with reserved identifiers
+    if (id === UNIVERSAL_LOGIN || id === ADMIN_EMAIL || id === DRIVER_ID) {
+      return { ok: false, error: "This register number is reserved. Please use a different one." };
+    }
+    const accounts = loadAccounts();
+    if (accounts[id]) {
+      return { ok: false, error: "An account with this register number already exists." };
+    }
+    accounts[id] = {
+      password: pw,
+      displayName: displayName?.trim() || id,
+      createdAt: Date.now(),
+    };
+    saveAccounts(accounts);
+    // Auto-login after successful registration
+    const s: Session = {
+      role: "student",
+      identifier: id,
+      displayName: accounts[id].displayName,
+      loggedInAt: Date.now(),
+    };
+    setSession(s);
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch (_) {}
+    return { ok: true };
   }, []);
 
   const logout = useCallback(() => {
@@ -171,6 +251,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     session,
     isAuthed: !!session,
     login,
+    register,
     logout,
     adminUnlocked,
     driverUnlocked,
