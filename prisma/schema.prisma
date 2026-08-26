@@ -88,3 +88,54 @@ model StopCrossing {
   @@index([vehicleId, crossedAt])
   @@index([routeNo, sequence])
 }
+
+model Notification {
+  id          String   @id @default(cuid())
+  title       String
+  body        String
+  routeNo     String?  // null = broadcast to all
+  recipients  Int      @default(0)
+  createdAt   DateTime @default(now())
+}
+
+model Feedback {
+  id          String   @id @default(cuid())
+  type        String   // complaint | feedback
+  message     String
+  tags        String   // comma-separated
+  studentName String?
+  routeNo     String?
+  createdAt   DateTime @default(now())
+}
+
+model SOSAlert {
+  id          String   @id @default(cuid())
+  studentName String
+  registerNo  String
+  routeNo     String?
+  message     String
+  location    String?
+  status      String   @default("active") // active | resolved
+  createdAt   DateTime @default(now())
+  resolvedAt  DateTime?
+}
+
+model AttendanceRecord {
+  id           String   @id @default(cuid())
+  studentName  String
+  registerNo   String
+  routeNo      String
+  boardingPoint String?
+  status       String   // present | absent | late
+  markedAt     DateTime @default(now())
+  markedBy     String   // driver | ai-camera | manual
+}
+
+model FaceRegistration {
+  id           String   @id @default(cuid())
+  studentName  String
+  registerNo   String
+  routeNo      String?
+  imageData    String   // base64 thumbnail
+  createdAt    DateTime @default(now())
+}

@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Route, parseTime, timeCat, isToday, routeStops } from "@/lib/ritians/data";
 import { useToast } from "@/lib/ritians/toast";
+import { useAuth } from "@/lib/ritians/auth";
 
 export interface ParkingInfo {
   location: string;
@@ -17,8 +18,11 @@ interface StudentViewProps {
 }
 
 export function StudentView({ routes, parking, onOpenStops }: StudentViewProps) {
+  const { show } = useToast();
+  const { session } = useAuth();
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState("time-asc");
+  const [sosSending, setSosSending] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
@@ -93,8 +97,62 @@ export function StudentView({ routes, parking, onOpenStops }: StudentViewProps) 
     ];
   }, [routes]);
 
+  const sendSOS = async () => {
+    if (sosSending) return;
+    if (!confirm("Send an SOS emergency alert to the admin? Use only in real emergencies.")) return;
+    setSosSending(true);
+    try {
+      const res = await fetch("/api/sos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          studentName: session?.profile?.fullName || session?.displayName || "Student",
+          registerNo: session?.profile?.registerNumber || session?.identifier || "unknown",
+          routeNo: session?.profile?.routeNo || null,
+          message: "Emergency alert — student needs assistance",
+          location: "Student Dashboard",
+        }),
+      });
+      if (res.ok) {
+        show("🚨 SOS alert sent to admin — help is on the way", "info");
+      } else {
+        show("Failed to send SOS", "error");
+      }
+    } catch (_) {
+      show("Network error — please try again", "error");
+    }
+    setSosSending(false);
+  };
+
   return (
     <div className="rt-page-content">
+      {/* SOS floating button */}
+      <button
+        onClick={sendSOS}
+        disabled={sosSending}
+        style={{
+          position: "fixed", bottom: 90, right: 80, zIndex: 95,
+          width: 56, height: 56, borderRadius: "50%",
+          background: sosSending ? "rgba(239,68,68,0.5)" : "linear-gradient(135deg, #EF4444, #DC2626)",
+          border: "2px solid rgba(255,255,255,0.15)",
+          color: "#fff", fontSize: 20, cursor: sosSending ? "not-allowed" : "pointer",
+          boxShadow: "0 8px 28px rgba(239,68,68,0.5)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          transition: "all 0.2s ease",
+        }}
+        title="Send SOS emergency alert"
+        aria-label="Send SOS"
+      >
+        {sosSending ? (
+          <i className="fas fa-spinner fa-spin" />
+        ) : (
+          <>
+            <i className="fas fa-bell" />
+            <span style={{ position: "absolute", top: -2, right: -2, width: 14, height: 14, borderRadius: "50%", background: "#fff", border: "2px solid #EF4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, color: "#EF4444", fontWeight: 700 }}>!</span>
+          </>
+        )}
+      </button>
+
       {/* Week strip */}
       <div className="rt-week-strip">
         <div className="rt-week-label">
@@ -269,12 +327,38 @@ export function StudentView({ routes, parking, onOpenStops }: StudentViewProps) 
       </div>
 
       {/* About + Report */}
-      <AboutReport onSubmit={() => show("Thank you for your feedback!")} />
+      <AboutReport onSubmit={submitFeedback} />
     </div>
   );
 }
 
-function AboutReport({ onSubmit }: { onSubmit: () => void }) {
+function submitFeedback(data: { type: string; message: string; tags: string[] }) {
+  fetch("/api/feedback", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  }).catch(() => {});
+}
+
+function AboutReport({ onSubmit }: { onSubmit: (data: { type: string; message: string; tags: string[] }) => void }) {
+  const [type, setType] = useState<"complaint" | "feedback">("complaint");
+  const [message, setMessage] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+  const { show } = useToast();
+
+  const toggleTag = (tag: string) => {
+    setTags((t) => t.includes(tag) ? t.filter((x) => x !== tag) : [...t, tag]);
+  };
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!message.trim()) { show("Please enter a message", "error"); return; }
+    onSubmit({ type, message: message.trim(), tags });
+    show("Thank you for your feedback! It has been sent to the admin.");
+    setMessage("");
+    setTags([]);
+  };
+
   return (
     <div className="rt-about-section">
       <div className="rt-about-grid">
@@ -290,28 +374,29 @@ function AboutReport({ onSubmit }: { onSubmit: () => void }) {
         </div>
         <div className="rt-about-report">
           <h3>Report / Feedback</h3>
-          <p>Help us improve your transport experience.</p>
-          <form onSubmit={(e) => { e.preventDefault(); onSubmit(); (e.target as HTMLFormElement).reset(); }}>
+          <p>Help us improve your transport experience. All feedback is stored and reviewed by admin.</p>
+          <form onSubmit={submit}>
             <div className="rt-report-type-row">
-              <label className="rt-rtype">
-                <input type="radio" name="rType" value="complaint" defaultChecked /> Complaint
+              <label className={`rt-rtype ${type === "complaint" ? "rt-rtype-active" : ""}`} style={type === "complaint" ? { background: "linear-gradient(135deg, var(--accent), #E8501E)", color: "#fff" } : {}}>
+                <input type="radio" name="rType" value="complaint" checked={type === "complaint"} onChange={() => setType("complaint")} /> Complaint
               </label>
-              <label className="rt-rtype">
-                <input type="radio" name="rType" value="feedback" /> Feedback
+              <label className={`rt-rtype ${type === "feedback" ? "rt-rtype-active" : ""}`} style={type === "feedback" ? { background: "linear-gradient(135deg, var(--accent), #E8501E)", color: "#fff" } : {}}>
+                <input type="radio" name="rType" value="feedback" checked={type === "feedback"} onChange={() => setType("feedback")} /> Feedback
               </label>
             </div>
             <div className="rt-report-tags">
-              <label className="rt-rtag"><input type="checkbox" value="good-driving" /> Good driving</label>
-              <label className="rt-rtag"><input type="checkbox" value="comfortable" /> Comfortable journey</label>
-              <label className="rt-rtag"><input type="checkbox" value="on-time" /> On-time arrival</label>
-              <label className="rt-rtag"><input type="checkbox" value="clean" /> Clean &amp; tidy bus</label>
-              <label className="rt-rtag"><input type="checkbox" value="more-buses" /> Need more buses</label>
+              {["good-driving", "comfortable", "on-time", "clean", "more-buses"].map((tag) => (
+                <label key={tag} className={`rt-rtag ${tags.includes(tag) ? "rt-rtag-active" : ""}`} style={tags.includes(tag) ? { background: "rgba(34,211,238,0.14)", borderColor: "var(--accent2)", color: "var(--accent2)" } : {}}>
+                  <input type="checkbox" value={tag} checked={tags.includes(tag)} onChange={() => toggleTag(tag)} />
+                  {tag.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                </label>
+              ))}
             </div>
             <div className="rt-form-field" style={{ marginBottom: 10 }}>
-              <textarea rows={2} placeholder="Additional comments…" />
+              <textarea rows={2} placeholder="Additional comments…" value={message} onChange={(e) => setMessage(e.target.value)} required />
             </div>
             <button type="submit" className="rt-btn rt-btn-primary rt-btn-sm">
-              <i className="fas fa-paper-plane" /> Submit
+              <i className="fas fa-paper-plane" /> Submit Feedback
             </button>
           </form>
         </div>

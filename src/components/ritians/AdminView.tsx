@@ -10,7 +10,7 @@ interface AdminViewProps {
   onUpdateRoute: (idx: number, r: Route) => void;
   onDeleteRoute: (idx: number) => void;
   onBack: () => void;
-  onOpenQuickLink: (key: "attendance" | "sos" | "notification") => void;
+  onOpenQuickLink: (key: "attendance" | "sos" | "notification" | "feedback") => void;
 }
 
 export function AdminView({
@@ -142,6 +142,24 @@ export function AdminView({
             <div className="rt-admin-quick-link__body">
               <div className="rt-admin-quick-link__title" style={{ color: "#FBBF24" }}>Notification Dashboard</div>
               <div className="rt-admin-quick-link__sub">Send bus-specific alerts to students instantly</div>
+            </div>
+            <i className="fas fa-arrow-right rt-admin-quick-link__arrow" />
+          </button>
+        </div>
+
+        {/* Feedback Dashboard quick-access */}
+        <div style={{ marginBottom: 16 }}>
+          <button
+            className="rt-admin-quick-link"
+            onClick={() => onOpenQuickLink("feedback")}
+            style={{ width: "100%", border: "none", padding: 0, background: "transparent" }}
+          >
+            <div className="rt-admin-quick-link__icon" style={{ background: "rgba(34,211,238,0.15)", color: "var(--accent2)", borderColor: "rgba(34,211,238,0.3)" }}>
+              <i className="fas fa-comments" />
+            </div>
+            <div className="rt-admin-quick-link__body">
+              <div className="rt-admin-quick-link__title" style={{ color: "var(--accent2)" }}>Feedback Dashboard</div>
+              <div className="rt-admin-quick-link__sub">View &amp; analyze student feedback and complaints</div>
             </div>
             <i className="fas fa-arrow-right rt-admin-quick-link__arrow" />
           </button>

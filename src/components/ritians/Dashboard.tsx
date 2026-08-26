@@ -14,6 +14,7 @@ import { DriverGpsPortal } from "./DriverGpsPortal";
 import { AttendanceDashboard } from "./AttendanceDashboard";
 import { SOSDashboard } from "./SOSDashboard";
 import { NotificationDashboard } from "./NotificationDashboard";
+import { FeedbackDashboard } from "./FeedbackDashboard";
 import { FaceRegister } from "./FaceRegister";
 import { Chatbot } from "./Chatbot";
 import { routes as initialRoutes, parseTime } from "@/lib/ritians/data";
@@ -23,12 +24,13 @@ import { useAuth } from "@/lib/ritians/auth";
 type Tab = "student" | "admin" | "driver" | "return";
 type ModalWhich = "admin" | "driver" | null;
 type FullPage =
-  | "tracking"      // live tracking (full page)
-  | "driverGps"    // driver GPS portal (full page)
+  | "tracking"
+  | "driverGps"
   | "faceRegister"
   | "attendance"
   | "sos"
   | "notification"
+  | "feedback"
   | null;
 
 const PARKING_KEY = "ritians_driver_parking_v1";
@@ -192,6 +194,22 @@ export function Dashboard() {
       </>
     );
   }
+  if (fullPage === "feedback") {
+    return (
+      <>
+        <Navbar
+          activeTab={tab}
+          onTabClick={(t) => { setFullPage(null); setTab(t); }}
+          onOpenTracking={() => setTrackingOpen(true)}
+          onOpenDriverGps={() => setFullPage("driverGps")}
+          viewMode={viewMode}
+          onToggleView={() => setViewMode((v) => (v === "desktop" ? "mobile" : "desktop"))}
+        />
+        <FeedbackDashboard onBack={() => setFullPage(null)} />
+        <Chatbot />
+      </>
+    );
+  }
   if (fullPage === "faceRegister") {
     return (
       <>
@@ -249,9 +267,12 @@ export function Dashboard() {
           onUpdateRoute={onUpdateRoute}
           onDeleteRoute={onDeleteRoute}
           onBack={() => setTab("student")}
-          onOpenQuickLink={(k) =>
-            setFullPage(k === "attendance" ? "attendance" : k === "sos" ? "sos" : "notification")
-          }
+          onOpenQuickLink={(k) => {
+            if (k === "attendance") setFullPage("attendance");
+            else if (k === "sos") setFullPage("sos");
+            else if (k === "notification") setFullPage("notification");
+            else if (k === "feedback") setFullPage("feedback");
+          }}
         />
       )}
 
