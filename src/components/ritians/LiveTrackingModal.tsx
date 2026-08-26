@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { routes as ALL_ROUTES, routeStops, RIT_CAMPUS_COORDS, type Coord } from "@/lib/ritians/data";
 
 interface LiveTrackingModalProps {
@@ -15,13 +16,11 @@ interface BusPosition {
   coords: Coord;
   progress: number;
   segIdx: number;
+  speed: number;
 }
 
 function lerp(a: Coord, b: Coord, t: number): Coord {
-  return {
-    lat: a.lat + (b.lat - a.lat) * t,
-    lng: a.lng + (b.lng - a.lng) * t,
-  };
+  return { lat: a.lat + (b.lat - a.lat) * t, lng: a.lng + (b.lng - a.lng) * t };
 }
 
 function project(c: Coord, bbox: { minLat: number; maxLat: number; minLng: number; maxLng: number }) {
@@ -31,8 +30,6 @@ function project(c: Coord, bbox: { minLat: number; maxLat: number; minLng: numbe
 }
 
 const BBOX = { minLat: 12.6, maxLat: 13.45, minLng: 79.3, maxLng: 80.45 };
-
-// The fixed set of routes we track live (always the same — no need to reset state)
 const TRACKED_ROUTE_NOS = ["R01", "R12", "R24", "R16B", "R29", "R05"];
 
 function initialBuses(): BusPosition[] {
@@ -41,24 +38,26 @@ function initialBuses(): BusPosition[] {
     const stops = routeStops[rno] || [];
     const firstStop = stops[0];
     const startCoords = firstStop?.coords || r.coords;
-    return {
-      routeNo: r.routeNo,
-      routeName: r.routeName,
-      no: r.no,
-      coords: startCoords,
-      progress: 0,
-      segIdx: 0,
-    };
+    return { routeNo: r.routeNo, routeName: r.routeName, no: r.no, coords: startCoords, progress: 0, segIdx: 0, speed: 35 };
   });
+}
+
+function haversineDist(a: Coord, b: Coord): number {
+  const R = 6371000;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
 }
 
 export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
   const [selectedRoute, setSelectedRoute] = useState<string>("R01");
   const [buses, setBuses] = useState<BusPosition[]>(() => initialBuses());
   const [tick, setTick] = useState(0);
+  const [followToggle, setFollowToggle] = useState(true);
   const tickRef = useRef(0);
 
-  // Tick: move each bus along its route every 1.5s (only when open)
   useEffect(() => {
     if (!open) return;
     const id = setInterval(() => {
@@ -73,17 +72,12 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
 
           let newSeg = b.segIdx;
           let newProg = b.progress + 0.08;
-          if (newProg >= 1) {
-            newProg = 0;
-            newSeg += 1;
-            if (newSeg >= coordsList.length - 1) {
-              newSeg = 0;
-            }
-          }
+          if (newProg >= 1) { newProg = 0; newSeg += 1; if (newSeg >= coordsList.length - 1) newSeg = 0; }
           const a = coordsList[newSeg];
           const c = coordsList[Math.min(newSeg + 1, coordsList.length - 1)];
           const newCoords = lerp(a, c, newProg);
-          return { ...b, segIdx: newSeg, progress: newProg, coords: newCoords };
+          const newSpeed = 30 + Math.sin(Date.now() / 30000 + b.routeNo.charCodeAt(0)) * 10;
+          return { ...b, segIdx: newSeg, progress: newProg, coords: newCoords, speed: newSpeed };
         })
       );
       tickRef.current += 1;
@@ -94,7 +88,6 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
 
   if (!open) return null;
 
-  // Build polyline for selected route
   const selRoute = ALL_ROUTES.find((r) => r.routeNo === selectedRoute);
   const selStops = routeStops[selectedRoute] || [];
   const selCoords: Coord[] = selStops.map((s) => s.coords || selRoute?.coords || RIT_CAMPUS_COORDS);
@@ -103,137 +96,181 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
   const polylinePoints = selPoints.map((p) => `${p.x},${p.y}`).join(" ");
 
   const selectedBus = buses.find((b) => b.routeNo === selectedRoute);
+  const busDistanceKm = selectedBus ? haversineDist(selectedBus.coords, RIT_CAMPUS_COORDS) / 1000 : 0;
+  const etaMin = selectedBus ? Math.max(1, Math.round(busDistanceKm / (selectedBus.speed / 60))) : 0;
 
   return (
-    <div className="rt-modal-overlay" onClick={onClose}>
+    <div className="rt-modal-overlay" onClick={onClose} style={{ padding: 0, alignItems: "stretch", justifyContent: "stretch" }}>
       <div
         className="rt-modal-box"
-        style={{ maxWidth: 760, maxHeight: "92vh" }}
+        style={{ maxWidth: "100%", maxHeight: "100vh", borderRadius: 0, border: "none", display: "flex", flexDirection: "column" }}
         onClick={(e) => e.stopPropagation()}
       >
-        <button className="rt-modal-close" onClick={onClose} aria-label="Close">
-          <i className="fas fa-xmark" />
-        </button>
-        <div className="rt-modal-header">
-          <div className="rt-modal-icon-ring stops-ring">
-            <i className="fas fa-satellite-dish" />
+        {/* Header bar */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "12px 20px", background: "rgba(8,11,20,0.95)", borderBottom: "1px solid var(--border)",
+          flexShrink: 0,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{
+              width: 36, height: 36, borderRadius: 10,
+              background: "linear-gradient(135deg, #f59e0b, #f97316)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 16, color: "#fff",
+            }}>
+              <i className="fas fa-bus-simple" />
+            </div>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>Where is my Bus</div>
+              <div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em" }}>Live Tracking • Chennai Routes</div>
+            </div>
           </div>
-          <h2>Live GPS Tracking</h2>
-          <p>Real-time simulated positions of {buses.length} college buses</p>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "5px 12px", borderRadius: 99,
+              background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.4)",
+              color: "#10b981", fontSize: 11, fontWeight: 600,
+            }}>
+              <i className="fas fa-wifi" style={{ animation: "rtPulse 2s infinite" }} /> ONLINE
+            </div>
+            <button onClick={onClose} style={{
+              background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)", borderRadius: 99,
+              width: 30, height: 30, color: "var(--text2)", cursor: "pointer", fontSize: 12,
+            }}>
+              <i className="fas fa-xmark" />
+            </button>
+          </div>
         </div>
 
-        <div className="rt-modal-body">
+        {/* Scrollable body */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px 8px", maxWidth: 800, margin: "0 auto", width: "100%" }}>
+          {/* Stats row */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+            {/* Bus Distance card */}
+            <div style={{
+              padding: 16, borderRadius: 12, background: "#13161c", border: "1px solid #1e2330",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, color: "#06b6d4", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                <i className="fas fa-globe" /> Bus Distance
+              </div>
+              <div style={{ width: "100%", height: 3, background: "#1e2330", borderRadius: 99, marginBottom: 8, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${Math.min(100, busDistanceKm)}%`, background: "#06b6d4", borderRadius: 99, transition: "width 0.5s ease" }} />
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#fff" }}>{busDistanceKm.toFixed(1)} km</div>
+              <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>From your live location</div>
+            </div>
+            {/* ETA to RIT card */}
+            <div style={{
+              padding: 16, borderRadius: 12, background: "#13161c", border: "1px solid #1e2330",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, color: "#10b981", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                <i className="fas fa-clock" /> ETA to RIT
+              </div>
+              <div style={{ width: "100%", height: 3, background: "#1e2330", borderRadius: 99, marginBottom: 8, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${Math.min(100, etaMin)}%`, background: "#10b981", borderRadius: 99, transition: "width 0.5s ease" }} />
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#fff" }}>
+                {etaMin > 60 ? `${Math.floor(etaMin / 60)}h ${etaMin % 60}m` : `${etaMin} min`}
+              </div>
+              <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>{selectedBus ? `${selectedBus.routeName} → RIT Campus` : "Waiting for bus"}</div>
+            </div>
+          </div>
+
+          {/* Map section */}
+          <div style={{ padding: 12, borderRadius: 12, background: "#13161c", border: "1px solid #1e2330", marginBottom: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#06b6d4", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                <i className="fas fa-map" /> Live Map
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 11, color: "#64748b" }}>Follow</span>
+                <button
+                  onClick={() => setFollowToggle(!followToggle)}
+                  style={{
+                    width: 36, height: 20, borderRadius: 99, border: "none", cursor: "pointer",
+                    background: followToggle ? "#06b6d4" : "#374151", position: "relative",
+                    transition: "background 0.2s ease",
+                  }}
+                >
+                  <div style={{
+                    position: "absolute", top: 2, left: followToggle ? 18 : 2,
+                    width: 16, height: 16, borderRadius: "50%", background: "#fff",
+                    transition: "left 0.2s ease",
+                  }} />
+                </button>
+              </div>
+            </div>
+            <div className="rt-map-container" style={{ height: 300 }}>
+              <div className="rt-map-grid" />
+              {selPoints.length > 1 && (
+                <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }} viewBox="0 0 100 100" preserveAspectRatio="none">
+                  <polyline points={polylinePoints} fill="none" stroke="#06b6d4" strokeWidth="0.5" strokeDasharray="2 1.5" vectorEffect="non-scaling-stroke" style={{ filter: "drop-shadow(0 0 2px rgba(6,182,212,0.5))" }} />
+                </svg>
+              )}
+              {selStops.map((s, i) => {
+                const c = s.coords || selRoute?.coords || RIT_CAMPUS_COORDS;
+                const p = project(c, BBOX);
+                const isRIT = s.stop === "RIT Campus";
+                return <div key={i} className={`rt-map-stop ${isRIT ? "rit" : ""}`} style={{ left: `${p.x}%`, top: `${p.y}%` }} title={`${s.stop} · ${s.time}`} />;
+              })}
+              {buses.map((b) => {
+                const p = project(b.coords, BBOX);
+                const isSelected = b.routeNo === selectedRoute;
+                return (
+                  <div key={b.routeNo} className="rt-map-bus" style={{ left: `${p.x}%`, top: `${p.y}%`, opacity: isSelected ? 1 : 0.5, zIndex: isSelected ? 20 : 10 }}>
+                    {isSelected && <div className="rt-map-bus-pulse" />}
+                    <div className="rt-map-bus-icon" style={isSelected ? {} : { transform: "scale(0.85)" }}>
+                      <i className="fas fa-bus" />
+                    </div>
+                  </div>
+                );
+              })}
+              <div className="rt-map-legend">
+                <div className="rt-map-legend-item"><span className="rt-dot rt-dot-on" /> Bus (live)</div>
+                <div className="rt-map-legend-item"><span className="rt-dot rt-dot-early" /> Boarding stop</div>
+                <div className="rt-map-legend-item"><span className="rt-dot rt-dot-late" /> RIT Campus</div>
+              </div>
+              {selectedBus && (
+                <div className="rt-map-info">
+                  <div className="title">{selectedBus.routeNo} · {selectedBus.routeName}</div>
+                  <div className="coord">LAT: {selectedBus.coords.lat.toFixed(4)} · LNG: {selectedBus.coords.lng.toFixed(4)}</div>
+                  <div className="coord" style={{ marginTop: 2, color: "var(--text2)" }}>Speed: {Math.round(selectedBus.speed)} km/h · Updated {tick}s ago</div>
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Route selector */}
-          <div className="rt-form-field" style={{ marginBottom: 12 }}>
-            <label>Select Route to Highlight</label>
-            <select value={selectedRoute} onChange={(e) => setSelectedRoute(e.target.value)}>
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "#06b6d4", marginBottom: 8 }}>
+              <i className="fas fa-route" /> Select Route
+            </div>
+            <select
+              value={selectedRoute}
+              onChange={(e) => setSelectedRoute(e.target.value)}
+              style={{
+                width: "100%", padding: "10px 14px",
+                background: "#13161c", border: "1px solid #1e2330", borderRadius: 8,
+                color: "#e2e8f0", fontSize: 13, outline: "none", cursor: "pointer", appearance: "none",
+              }}
+            >
               {ALL_ROUTES.map((r) => (
-                <option key={r.routeNo} value={r.routeNo}>
-                  Bus {r.no} · {r.routeNo} · {r.routeName}
-                </option>
+                <option key={r.routeNo} value={r.routeNo}>{r.routeNo} · {r.routeName} (Bus {r.no})</option>
               ))}
             </select>
           </div>
 
-          {/* Map */}
-          <div className="rt-map-container">
-            <div className="rt-map-grid" />
-
-            {/* Route polyline for selected route */}
-            {selPoints.length > 1 && (
-              <svg
-                style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}
-                viewBox="0 0 100 100"
-                preserveAspectRatio="none"
-              >
-                <polyline
-                  points={polylinePoints}
-                  fill="none"
-                  stroke="var(--accent)"
-                  strokeWidth="0.5"
-                  strokeDasharray="2 1.5"
-                  vectorEffect="non-scaling-stroke"
-                  style={{ filter: "drop-shadow(0 0 2px var(--glow-accent))" }}
-                />
-              </svg>
-            )}
-
-            {/* Stops for selected route */}
-            {selStops.map((s, i) => {
-              const c = s.coords || selRoute?.coords || RIT_CAMPUS_COORDS;
-              const p = project(c, BBOX);
-              const isRIT = s.stop === "RIT Campus";
-              return (
-                <div
-                  key={i}
-                  className={`rt-map-stop ${isRIT ? "rit" : ""}`}
-                  style={{ left: `${p.x}%`, top: `${p.y}%` }}
-                  title={`${s.stop} · ${s.time}`}
-                />
-              );
-            })}
-
-            {/* Bus markers */}
-            {buses.map((b) => {
-              const p = project(b.coords, BBOX);
-              const isSelected = b.routeNo === selectedRoute;
-              return (
-                <div
-                  key={b.routeNo}
-                  className="rt-map-bus"
-                  style={{
-                    left: `${p.x}%`,
-                    top: `${p.y}%`,
-                    opacity: isSelected ? 1 : 0.55,
-                    zIndex: isSelected ? 20 : 10,
-                  }}
-                  title={`Bus ${b.no} · ${b.routeNo} · ${b.routeName}`}
-                >
-                  {isSelected && <div className="rt-map-bus-pulse" />}
-                  <div className="rt-map-bus-icon" style={isSelected ? {} : { transform: "scale(0.85)" }}>
-                    <i className="fas fa-bus" />
-                  </div>
-                </div>
-              );
-            })}
-
-            {/* Legend */}
-            <div className="rt-map-legend">
-              <div className="rt-map-legend-item">
-                <span className="rt-dot rt-dot-on" /> Bus (live)
-              </div>
-              <div className="rt-map-legend-item">
-                <span className="rt-dot rt-dot-early" /> Boarding stop
-              </div>
-              <div className="rt-map-legend-item">
-                <span className="rt-dot rt-dot-late" /> RIT Campus
-              </div>
-            </div>
-
-            {/* Info panel for selected bus */}
-            {selectedBus && (
-              <div className="rt-map-info">
-                <div className="title">Bus {selectedBus.no} · {selectedBus.routeNo} · {selectedBus.routeName}</div>
-                <div className="coord">
-                  LAT: {selectedBus.coords.lat.toFixed(4)} · LNG: {selectedBus.coords.lng.toFixed(4)}
-                </div>
-                <div className="coord" style={{ marginTop: 2, color: "var(--text2)" }}>
-                  Status: En route · Updated {tick}s ago
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Tracked buses — route cards like reference */}
-          <div style={{ marginTop: 14 }}>
-            <div style={{ fontFamily: "var(--font-head)", fontSize: 13, fontWeight: 600, marginBottom: 10, color: "var(--text3)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          {/* Route cards */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "#64748b", marginBottom: 8 }}>
               {buses.length} Buses Live on Map
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {buses.map((b) => {
                 const r = ALL_ROUTES.find((x) => x.routeNo === b.routeNo);
                 const isSelected = b.routeNo === selectedRoute;
-                // Calculate distance and ETA
                 const distKm = r ? Math.round(haversineDist(r.coords, RIT_CAMPUS_COORDS) / 100) / 10 : 0;
                 const etaMin = r ? Math.max(15, Math.round(distKm * 2)) : 0;
                 const etaH = Math.floor(etaMin / 60);
@@ -244,47 +281,66 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
                     onClick={() => setSelectedRoute(b.routeNo)}
                     style={{
                       display: "flex", alignItems: "center", gap: 12,
-                      padding: "12px 14px", borderRadius: "var(--r)",
-                      background: isSelected ? "rgba(34,211,238,0.08)" : "rgba(255,255,255,0.03)",
-                      border: `1px solid ${isSelected ? "var(--accent2)" : "var(--border)"}`,
+                      padding: "12px 14px", borderRadius: 10,
+                      background: isSelected ? "rgba(6,182,212,0.08)" : "#13161c",
+                      border: `1px solid ${isSelected ? "#06b6d4" : "#1e2330"}`,
                       cursor: "pointer", transition: "all 0.18s ease", textAlign: "left",
                     }}
                   >
-                    {/* RTE badge */}
-                    <div style={{
-                      width: 48, height: 48, borderRadius: 10, flexShrink: 0,
-                      background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)",
-                      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                    }}>
-                      <div style={{ fontSize: 8, color: "var(--text3)", fontWeight: 700, textTransform: "uppercase" }}>RTE</div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: "#FBBF24", fontFamily: "var(--font-mono)" }}>{b.routeNo}</div>
+                    <div style={{ width: 44, height: 44, borderRadius: 8, flexShrink: 0, background: "rgba(255,255,255,0.06)", border: "1px solid #1e2330", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+                      <div style={{ fontSize: 8, color: "#64748b", fontWeight: 700, textTransform: "uppercase" }}>RTE</div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#f59e0b", fontFamily: "var(--font-mono)" }}>{b.routeNo}</div>
                     </div>
-                    {/* Route info */}
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>
-                        {b.routeName} → RIT Campus
-                      </div>
-                      <div style={{ display: "flex", gap: 12, marginTop: 3, fontSize: 11, color: "var(--text3)" }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#e2e8f0" }}>{b.routeName} → RIT Campus</div>
+                      <div style={{ display: "flex", gap: 12, marginTop: 3, fontSize: 11, color: "#64748b" }}>
                         <span><i className="fas fa-road" style={{ marginRight: 4 }} />{distKm.toFixed(1)} km</span>
                         <span><i className="fas fa-clock" style={{ marginRight: 4 }} />~{etaH > 0 ? `${etaH}h ` : ""}{etaM}m</span>
-                        {b.speed > 0 && <span style={{ color: "var(--accent2)" }}><i className="fas fa-gauge-high" style={{ marginRight: 4 }} />{Math.round(b.speed)} km/h</span>}
+                        <span style={{ color: "#06b6d4" }}><i className="fas fa-gauge-high" style={{ marginRight: 4 }} />{Math.round(b.speed)} km/h</span>
                       </div>
                     </div>
-                    {/* Live indicator */}
-                    {isSelected && (
-                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#34D399", boxShadow: "0 0 8px #34D399", flexShrink: 0 }} />
-                    )}
-                    <i className="fas fa-chevron-right" style={{ color: "var(--text3)", fontSize: 10, flexShrink: 0 }} />
+                    {isSelected && <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#10b981", boxShadow: "0 0 8px #10b981", flexShrink: 0 }} />}
+                    <i className="fas fa-chevron-right" style={{ color: "#64748b", fontSize: 10, flexShrink: 0 }} />
                   </button>
                 );
               })}
             </div>
           </div>
 
-          <div className="rt-footnote-note" style={{ marginTop: 14 }}>
-            <i className="fas fa-info-circle" style={{ color: "var(--accent2)", fontSize: 11, marginRight: 5 }} />
-            Simulated GPS positions update every 1.5 seconds. In production, this would use Firebase Realtime DB
-            with driver-phone GPS streams.
+          {/* System Status */}
+          <div style={{ padding: 16, borderRadius: 12, background: "#13161c", border: "1px solid #1e2330", marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, color: "#94a3b8", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              <i className="fas fa-signal" /> System Status
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 24px" }}>
+              {[
+                { icon: "fa-location-crosshairs", label: "Your Location", on: true },
+                { icon: "fa-wifi", label: "Network", on: true },
+                { icon: "fa-paper-plane", label: "Server", on: true },
+                { icon: "fa-tower-broadcast", label: "Live Location", on: !!selectedBus },
+                { icon: "fa-wave-square", label: "Bus Tracking", on: !!selectedBus },
+                { icon: "fa-map-pin", label: "Trip Status", on: true },
+              ].map((item) => (
+                <div key={item.label} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 0" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#94a3b8" }}>
+                    <i className={`fas ${item.icon}`} style={{ color: item.on ? "#10b981" : "#64748b", width: 14, textAlign: "center" }} />
+                    <span>{item.label}</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: item.on ? "#10b981" : "#ef4444", boxShadow: `0 0 6px ${item.on ? "#10b981" : "#ef4444"}` }} />
+                    <span style={{ fontSize: 11, fontWeight: 700, color: item.on ? "#10b981" : "#ef4444" }}>{item.on ? "ON" : "OFF"}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop: 12, fontSize: 11, color: "#64748b" }}>
+              Live updates from driver every 2 seconds. Last update: {tick > 0 ? `${tick}s ago` : "never"}.
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div style={{ textAlign: "center", padding: "12px 0 8px", borderTop: "1px solid rgba(30,35,48,0.5)" }}>
+            <div style={{ fontSize: 11, color: "#64748b" }}>Where is my Bus · 52 Chennai routes · All buses go to RIT Campus</div>
           </div>
         </div>
       </div>
@@ -292,14 +348,4 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
   );
 }
 
-// keep file format consistent
 export {};
-
-function haversineDist(a: Coord, b: Coord): number {
-  const R = 6371000;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(b.lat - a.lat);
-  const dLng = toRad(b.lng - a.lng);
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(h));
-}
