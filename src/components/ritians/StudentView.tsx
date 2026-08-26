@@ -22,7 +22,6 @@ export function StudentView({ routes, parking, onOpenStops }: StudentViewProps) 
   const { session } = useAuth();
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState("time-asc");
-  const [sosSending, setSosSending] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
@@ -97,62 +96,8 @@ export function StudentView({ routes, parking, onOpenStops }: StudentViewProps) 
     ];
   }, [routes]);
 
-  const sendSOS = async () => {
-    if (sosSending) return;
-    if (!confirm("Send an SOS emergency alert to the admin? Use only in real emergencies.")) return;
-    setSosSending(true);
-    try {
-      const res = await fetch("/api/sos", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          studentName: session?.profile?.fullName || session?.displayName || "Student",
-          registerNo: session?.profile?.registerNumber || session?.identifier || "unknown",
-          routeNo: session?.profile?.routeNo || null,
-          message: "Emergency alert — student needs assistance",
-          location: "Student Dashboard",
-        }),
-      });
-      if (res.ok) {
-        show("🚨 SOS alert sent to admin — help is on the way", "info");
-      } else {
-        show("Failed to send SOS", "error");
-      }
-    } catch (_) {
-      show("Network error — please try again", "error");
-    }
-    setSosSending(false);
-  };
-
   return (
     <div className="rt-page-content">
-      {/* SOS floating button */}
-      <button
-        onClick={sendSOS}
-        disabled={sosSending}
-        style={{
-          position: "fixed", bottom: 90, right: 80, zIndex: 95,
-          width: 56, height: 56, borderRadius: "50%",
-          background: sosSending ? "rgba(239,68,68,0.5)" : "linear-gradient(135deg, #EF4444, #DC2626)",
-          border: "2px solid rgba(255,255,255,0.15)",
-          color: "#fff", fontSize: 20, cursor: sosSending ? "not-allowed" : "pointer",
-          boxShadow: "0 8px 28px rgba(239,68,68,0.5)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          transition: "all 0.2s ease",
-        }}
-        title="Send SOS emergency alert"
-        aria-label="Send SOS"
-      >
-        {sosSending ? (
-          <i className="fas fa-spinner fa-spin" />
-        ) : (
-          <>
-            <i className="fas fa-bell" />
-            <span style={{ position: "absolute", top: -2, right: -2, width: 14, height: 14, borderRadius: "50%", background: "#fff", border: "2px solid #EF4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, color: "#EF4444", fontWeight: 700 }}>!</span>
-          </>
-        )}
-      </button>
-
       {/* Week strip */}
       <div className="rt-week-strip">
         <div className="rt-week-label">

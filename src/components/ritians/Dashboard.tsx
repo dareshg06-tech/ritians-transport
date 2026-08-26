@@ -12,7 +12,6 @@ import { LoginModals } from "./LoginModals";
 import { LiveTrackingModal } from "./LiveTrackingModal";
 import { DriverGpsPortal } from "./DriverGpsPortal";
 import { AttendanceDashboard } from "./AttendanceDashboard";
-import { SOSDashboard } from "./SOSDashboard";
 import { NotificationDashboard } from "./NotificationDashboard";
 import { FeedbackDashboard } from "./FeedbackDashboard";
 import { FaceRegister } from "./FaceRegister";
@@ -28,7 +27,6 @@ type FullPage =
   | "driverGps"
   | "faceRegister"
   | "attendance"
-  | "sos"
   | "notification"
   | "feedback"
   | null;
@@ -162,22 +160,6 @@ export function Dashboard() {
       </>
     );
   }
-  if (fullPage === "sos") {
-    return (
-      <>
-        <Navbar
-          activeTab={tab}
-          onTabClick={(t) => { setFullPage(null); setTab(t); }}
-          onOpenTracking={() => setTrackingOpen(true)}
-          onOpenDriverGps={() => setFullPage("driverGps")}
-          viewMode={viewMode}
-          onToggleView={() => setViewMode((v) => (v === "desktop" ? "mobile" : "desktop"))}
-        />
-        <SOSDashboard onBack={() => setFullPage(null)} />
-        <Chatbot />
-      </>
-    );
-  }
   if (fullPage === "notification") {
     return (
       <>
@@ -269,7 +251,6 @@ export function Dashboard() {
           onBack={() => setTab("student")}
           onOpenQuickLink={(k) => {
             if (k === "attendance") setFullPage("attendance");
-            else if (k === "sos") setFullPage("sos");
             else if (k === "notification") setFullPage("notification");
             else if (k === "feedback") setFullPage("feedback");
           }}

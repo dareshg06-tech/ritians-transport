@@ -11,7 +11,7 @@ interface AdminViewProps {
   onUpdateRoute: (idx: number, r: Route) => void;
   onDeleteRoute: (idx: number) => void;
   onBack: () => void;
-  onOpenQuickLink: (key: "attendance" | "sos" | "notification" | "feedback") => void;
+  onOpenQuickLink: (key: "attendance" | "notification" | "feedback") => void;
 }
 
 export function AdminView({
@@ -113,26 +113,6 @@ export function AdminView({
             <div className="rt-admin-quick-link__body">
               <div className="rt-admin-quick-link__title">Attendance Dashboard</div>
               <div className="rt-admin-quick-link__sub">View, filter &amp; export student attendance records</div>
-            </div>
-            <i className="fas fa-arrow-right rt-admin-quick-link__arrow" />
-          </button>
-        </div>
-
-        {/* SOS Dashboard quick-access */}
-        <div style={{ marginBottom: 16 }}>
-          <button
-            className="rt-admin-quick-link"
-            onClick={() => onOpenQuickLink("sos")}
-            style={{
-              width: "100%", border: "none", padding: 0, background: "transparent",
-            }}
-          >
-            <div className="rt-admin-quick-link__icon" style={{ background: "rgba(255,31,31,0.15)", color: "#FF1F1F", borderColor: "rgba(255,31,31,0.3)" }}>
-              <i className="fas fa-bell" />
-            </div>
-            <div className="rt-admin-quick-link__body">
-              <div className="rt-admin-quick-link__title" style={{ color: "#FF1F1F" }}>SOS Dashboard</div>
-              <div className="rt-admin-quick-link__sub">Monitor &amp; respond to emergency alerts in real-time</div>
             </div>
             <i className="fas fa-arrow-right rt-admin-quick-link__arrow" />
           </button>
