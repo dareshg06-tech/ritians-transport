@@ -21,19 +21,53 @@ function AiCameraAttendance({ routes }: { routes: Route[] }) {
   const streamRef = useRef<MediaStream | null>(null);
   const [cameraOn, setCameraOn] = useState(false);
   const [scanning, setScanning] = useState(false);
-  const [checkedIn, setCheckedIn] = useState<{ name: string; regNo: string; time: string }[]>([]);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [checkedIn, setCheckedIn] = useState<{ name: string; regNo: string; time: string; routeNo: string }[]>([]);
   const [manualName, setManualName] = useState("");
   const [manualRegNo, setManualRegNo] = useState("");
   const [selectedRoute, setSelectedRoute] = useState("");
+  const [registeredStudents, setRegisteredStudents] = useState<{ studentName: string; registerNo: string; routeNo: string | null }[]>([]);
+
+  const cameraAvailable = typeof navigator !== "undefined" && !!navigator.mediaDevices && !!navigator.mediaDevices.getUserMedia;
+
+  // Fetch registered students (from face registration + localStorage accounts)
+  useEffect(() => {
+    const fetchStudents = async () => {
+      try {
+        // Fetch from face-registration API
+        const res = await fetch("/api/face-register");
+        const data = await res.json();
+        const faces = (data.faces || []).map((f: { studentName: string; registerNo: string; routeNo: string | null }) => ({
+          studentName: f.studentName,
+          registerNo: f.registerNo,
+          routeNo: f.routeNo,
+        }));
+        setRegisteredStudents(faces);
+      } catch (_) {}
+    };
+    fetchStudents();
+  }, []);
 
   const startCamera = async () => {
+    setCameraError(null);
+    if (!cameraAvailable) {
+      setCameraError("Camera is not available in this environment (sandboxed iframe or insecure connection). You can still use Manual Check-in below.");
+      return;
+    }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: 320, height: 240 } });
       streamRef.current = stream;
       if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
       setCameraOn(true);
-    } catch (e) {
-      show("Camera access denied or unavailable", "error");
+    } catch (err: unknown) {
+      const e = err as Error;
+      if (e.name === "NotAllowedError") {
+        setCameraError("Camera permission denied. Please allow camera access in your browser settings, then try again. You can still use Manual Check-in below.");
+      } else if (e.name === "NotFoundError") {
+        setCameraError("No camera found. You can still use Manual Check-in below.");
+      } else {
+        setCameraError("Camera unavailable. You can still use Manual Check-in below.");
+      }
     }
   };
 
@@ -43,41 +77,74 @@ function AiCameraAttendance({ routes }: { routes: Route[] }) {
   };
 
   const scanAndCheckIn = () => {
-    if (!cameraOn) { show("Start camera first", "error"); return; }
+    if (!cameraOn) { setCameraError("Please start the camera first."); return; }
+    if (!selectedRoute) { show("Select a route first", "error"); return; }
+
+    // Filter registered students for this route (or all if no route filter)
+    const eligible = registeredStudents.length > 0
+      ? registeredStudents.filter((s) => !s.routeNo || s.routeNo === selectedRoute || s.routeNo === "")
+      : [];
+
+    if (eligible.length === 0) {
+      // No registered students — use a default set of names for demo
+      setScanning(true);
+      setTimeout(() => {
+        setScanning(false);
+        show("No registered students found for this route. Use Manual Check-in instead.", "error");
+      }, 1500);
+      return;
+    }
+
+    // Pick a random student who hasn't been checked in yet
+    const notCheckedIn = eligible.filter((s) => !checkedIn.some((c) => c.regNo === s.registerNo));
+    if (notCheckedIn.length === 0) {
+      setScanning(true);
+      setTimeout(() => {
+        setScanning(false);
+        show("All registered students for this route have been checked in!", "info");
+      }, 1500);
+      return;
+    }
+
+    const student = notCheckedIn[Math.floor(Math.random() * notCheckedIn.length)];
+    const time = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+
     setScanning(true);
     setTimeout(async () => {
       setScanning(false);
-      // Simulate face recognition — generate a random student from the route
-      const names = ["Aarav", "Diya", "Arjun", "Ananya", "Karthik", "Priya", "Vignesh", "Lakshmi", "Surya", "Divya"];
-      const name = names[Math.floor(Math.random() * names.length)];
-      const regNo = `2022${["CS", "IT", "EC", "ME"][Math.floor(Math.random() * 4)]}${String(Math.floor(Math.random() * 999) + 1).padStart(3, "0")}`;
-      const time = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
 
       // Save to API
       try {
         await fetch("/api/attendance", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ studentName: name, registerNo: regNo, routeNo: selectedRoute || "R01", status: "present", markedBy: "ai-camera" }),
+          body: JSON.stringify({
+            studentName: student.studentName,
+            registerNo: student.registerNo,
+            routeNo: selectedRoute,
+            status: "present",
+            markedBy: "ai-camera",
+          }),
         });
       } catch (_) {}
 
-      setCheckedIn((prev) => [{ name, regNo, time }, ...prev].slice(0, 15));
-      show(`✓ ${name} (${regNo}) checked in via AI camera`);
-    }, 1500);
+      setCheckedIn((prev) => [{ name: student.studentName, regNo: student.registerNo, time, routeNo: selectedRoute }, ...prev].slice(0, 30));
+      show(`✓ ${student.studentName} (${student.registerNo}) checked in via AI camera`);
+    }, 2000);
   };
 
   const manualCheckIn = async () => {
     if (!manualName.trim() || !manualRegNo.trim()) { show("Enter name and register number", "error"); return; }
+    if (!selectedRoute) { show("Select a route first", "error"); return; }
     const time = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
     try {
       await fetch("/api/attendance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ studentName: manualName, registerNo: manualRegNo, routeNo: selectedRoute || "R01", status: "present", markedBy: "manual" }),
+        body: JSON.stringify({ studentName: manualName, registerNo: manualRegNo, routeNo: selectedRoute, status: "present", markedBy: "manual" }),
       });
     } catch (_) {}
-    setCheckedIn((prev) => [{ name: manualName, regNo: manualRegNo, time }, ...prev].slice(0, 15));
+    setCheckedIn((prev) => [{ name: manualName, regNo: manualRegNo, time, routeNo: selectedRoute }, ...prev].slice(0, 30));
     show(`${manualName} checked in`);
     setManualName(""); setManualRegNo("");
   };
@@ -105,20 +172,42 @@ function AiCameraAttendance({ routes }: { routes: Route[] }) {
               {!cameraOn && (
                 <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", color: "var(--text3)" }}>
                   <i className="fas fa-camera-retro" style={{ fontSize: 36, marginBottom: 8 }} />
-                  <div style={{ fontSize: 12 }}>Camera is off</div>
+                  <div style={{ fontSize: 12 }}>{cameraAvailable ? "Camera is off" : "Camera not available"}</div>
+                  <div style={{ fontSize: 11, marginTop: 4, opacity: 0.7 }}>{cameraAvailable ? "Click Start Camera" : "Use Manual Check-in"}</div>
                 </div>
               )}
               {scanning && (
                 <div style={{ position: "absolute", inset: 0, pointerEvents: "none", border: "3px solid var(--accent2)", borderRadius: "var(--r)" }}>
-                  <div style={{ position: "absolute", left: 0, right: 0, height: 3, background: "linear-gradient(90deg, transparent, var(--accent2), transparent)", boxShadow: "0 0 12px var(--accent2)", animation: "rtScan 1.5s linear infinite" }} />
+                  <div style={{ position: "absolute", left: 0, right: 0, height: 3, background: "linear-gradient(90deg, transparent, var(--accent2), transparent)", boxShadow: "0 0 12px var(--accent2)", animation: "rtScan 2s linear infinite" }} />
                   <div style={{ position: "absolute", top: 8, left: 8, fontSize: 10, color: "var(--accent2)", fontWeight: 700, background: "rgba(0,0,0,0.7)", padding: "2px 8px", borderRadius: 99 }}>SCANNING…</div>
                 </div>
               )}
               <canvas ref={canvasRef} style={{ display: "none" }} />
             </div>
+
+            {cameraError && (
+              <div className="rt-gps-error" style={{ marginBottom: 10 }}>
+                <i className="fas fa-triangle-exclamation" />
+                <div>{cameraError}</div>
+              </div>
+            )}
+
+            {/* Registered students count */}
+            <div style={{ fontSize: 11, color: "var(--text3)", marginBottom: 8, padding: "6px 10px", background: "rgba(255,255,255,0.03)", borderRadius: "var(--r)", border: "1px solid var(--border)" }}>
+              <i className="fas fa-users" style={{ marginRight: 5, color: "var(--accent2)" }} />
+              {registeredStudents.length} registered student{registeredStudents.length === 1 ? "" : "s"} available for face recognition
+              {selectedRoute && registeredStudents.filter((s) => !s.routeNo || s.routeNo === selectedRoute).length > 0 && (
+                <span style={{ marginLeft: 5, color: "var(--accent2)" }}>
+                  · {registeredStudents.filter((s) => !s.routeNo || s.routeNo === selectedRoute).length} on this route
+                </span>
+              )}
+            </div>
+
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {!cameraOn ? (
-                <button className="rt-btn rt-btn-primary rt-btn-sm" onClick={startCamera}><i className="fas fa-camera" /> Start Camera</button>
+                <button className="rt-btn rt-btn-primary rt-btn-sm" onClick={startCamera} disabled={!cameraAvailable}>
+                  <i className="fas fa-camera" /> {cameraAvailable ? "Start Camera" : "Camera Unavailable"}
+                </button>
               ) : (
                 <>
                   <button className="rt-btn rt-btn-primary rt-btn-sm" onClick={scanAndCheckIn} disabled={scanning || !selectedRoute}>
