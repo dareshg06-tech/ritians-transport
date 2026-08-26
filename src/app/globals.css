@@ -457,6 +457,19 @@ html,body {
 .rt-admin-quick-link:hover .rt-admin-quick-link__arrow{transform:translateX(4px);color:var(--accent2)}
 
 /* ── UTILITIES ── */
+/* Global fix: native <option> dropdown items must have readable text.
+   Browsers render <option> popups with their own (usually light) theme,
+   so we force a dark background + light text for all <option> elements
+   across the app to match our dark glassmorphism UI. */
+option {
+  background: #1a1d2a;
+  color: #F5F7FF;
+  padding: 8px 12px;
+}
+option:checked {
+  background: #0EA5E9;
+  color: #04202b;
+}
 .rt-hidden{display:none!important}
 .rt-divider{border:none;border-top:1px solid var(--border);margin:16px 0}
 .rt-muted{color:var(--text3)}
@@ -1700,10 +1713,21 @@ body.rt-force-mobile .rt-styled-select { min-width: 0; width: 100%; }
   outline: none;
   transition: all 0.2s ease;
   appearance: none;
-}
-.rt-reg-input-wrap select {
   cursor: pointer;
   padding-right: 32px;
+}
+/* Native <option> elements — must have dark text on light background so they're
+   readable in the browser's native dropdown popup (which is always light-themed). */
+.rt-reg-input-wrap select option,
+.rt-reg-input-wrap option {
+  background: #1a1d2a;
+  color: #F5F7FF;
+  padding: 8px 12px;
+}
+.rt-reg-input-wrap select option:checked,
+.rt-reg-input-wrap select option:hover {
+  background: #0EA5E9;
+  color: #04202b;
 }
 .rt-reg-input-wrap input:focus,
 .rt-reg-input-wrap select:focus {
