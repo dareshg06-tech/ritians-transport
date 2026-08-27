@@ -83,7 +83,9 @@ export function DriverGpsPortal({ onBack, onOpenTracking }: DriverGpsProps) {
       latitude: pos.coords.latitude,
       longitude: pos.coords.longitude,
       accuracy: pos.coords.accuracy,
-      speed: pos.coords.speed != null ? pos.coords.speed * 3.6 : null, // m/s → km/h
+      // If speed is null (device doesn't report speed), set to 0 — not null
+      speed: pos.coords.speed != null ? Math.max(0, pos.coords.speed * 3.6) : 0, // m/s → km/h, minimum 0
+      // If heading is null, keep it null (bus is stationary — no direction)
       heading: pos.coords.heading,
       altitude: pos.coords.altitude,
       timestamp: pos.timestamp,
@@ -105,7 +107,7 @@ export function DriverGpsPortal({ onBack, onOpenTracking }: DriverGpsProps) {
     startSimulatedGPS();
   };
 
-  // Simulated GPS — moves along the route with EXACT coordinates
+  // Simulated GPS — starts at the EXACT starting location with speed 0, then moves
   const startSimulatedGPS = () => {
     if (!vehicle) return;
     const stops = routeStops[vehicle.routeNo] || [];
@@ -115,35 +117,54 @@ export function DriverGpsPortal({ onBack, onOpenTracking }: DriverGpsProps) {
     segIdxRef.current = 0;
     progRef.current = 0;
 
-    simIntervalRef.current = setInterval(() => {
-      const segIdx = segIdxRef.current;
-      const prog = progRef.current + 0.05;
-      if (prog >= 1) {
-        progRef.current = 0;
-        segIdxRef.current = Math.min(segIdx + 1, coordsList.length - 2);
-      } else {
-        progRef.current = prog;
-      }
-      const a = coordsList[segIdxRef.current];
-      const b = coordsList[Math.min(segIdxRef.current + 1, coordsList.length - 1)];
-      const lat = a.lat + (b.lat - a.lat) * progRef.current;
-      const lng = a.lng + (b.lng - a.lng) * progRef.current;
-      const speed = 25 + Math.sin(Date.now() / 20000) * 15;
-      const heading = Math.atan2(b.lng - a.lng, b.lat - a.lat) * 180 / Math.PI;
+    // Post the INITIAL position — exactly at the starting location, speed = 0
+    const startPos = coordsList[0];
+    const initialData: GPSData = {
+      latitude: startPos.lat,
+      longitude: startPos.lng,
+      accuracy: 8,
+      speed: 0, // Bus is stationary at the start
+      heading: null, // No heading when stationary
+      altitude: 30,
+      timestamp: Date.now(),
+    };
+    setGps(initialData);
+    postLocation(initialData, true);
 
-      const data: GPSData = {
-        latitude: lat,
-        longitude: lng,
-        accuracy: 8 + Math.random() * 4,
-        speed: Math.max(0, speed),
-        heading: heading < 0 ? heading + 360 : heading,
-        altitude: 30 + Math.random() * 10,
-        timestamp: Date.now(),
-      };
-      setGps(data);
-      setTick((t) => t + 1);
-      postLocation(data, true);
-    }, 2000);
+    // After 4 seconds, start moving
+    setTimeout(() => {
+      simIntervalRef.current = setInterval(() => {
+        const segIdx = segIdxRef.current;
+        const prog = progRef.current + 0.05;
+        if (prog >= 1) {
+          progRef.current = 0;
+          segIdxRef.current = Math.min(segIdx + 1, coordsList.length - 2);
+        } else {
+          progRef.current = prog;
+        }
+        const a = coordsList[segIdxRef.current];
+        const b = coordsList[Math.min(segIdxRef.current + 1, coordsList.length - 1)];
+        const lat = a.lat + (b.lat - a.lat) * progRef.current;
+        const lng = a.lng + (b.lng - a.lng) * progRef.current;
+        // Speed varies between 20-40 km/h (realistic bus speed)
+        const speed = 20 + Math.sin(Date.now() / 20000) * 10;
+        // Heading = direction from current position to next stop
+        const heading = Math.atan2(b.lng - lng, b.lat - lat) * 180 / Math.PI;
+
+        const data: GPSData = {
+          latitude: lat,
+          longitude: lng,
+          accuracy: 8 + Math.random() * 4,
+          speed: Math.max(0, speed), // Never negative
+          heading: heading < 0 ? heading + 360 : heading,
+          altitude: 30 + Math.random() * 10,
+          timestamp: Date.now(),
+        };
+        setGps(data);
+        setTick((t) => t + 1);
+        postLocation(data, true);
+      }, 2000);
+    }, 4000); // 4 second delay before bus starts moving
   };
 
   const startSharing = () => {
@@ -375,8 +396,8 @@ export function DriverGpsPortal({ onBack, onOpenTracking }: DriverGpsProps) {
                 </div>
                 <div className="rt-gps-data-row">
                   <span className="rt-gps-data-label">Speed</span>
-                  <span className={`rt-gps-data-value ${gps?.speed != null ? "orange" : "idle"}`}>
-                    {gps?.speed != null ? `${Math.round(gps.speed)} km/h` : "—"}
+                  <span className={`rt-gps-data-value ${gps ? (gps.speed > 0 ? "orange" : "idle") : "idle"}`}>
+                    {gps ? `${Math.round(gps.speed)} km/h` : "—"}
                   </span>
                 </div>
                 <div className="rt-gps-data-row">
