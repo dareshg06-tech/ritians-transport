@@ -19,8 +19,27 @@ interface GPSData {
   timestamp: number;
 }
 
+// Maps a route number to the DB vehicle ID by fetching /api/vehicles on mount
+function useVehicleIdMap() {
+  const [routeToVehicleId, setRouteToVehicleId] = useState<Record<string, string>>({});
+  useEffect(() => {
+    fetch("/api/vehicles")
+      .then((r) => r.json())
+      .then((data) => {
+        const map: Record<string, string> = {};
+        for (const v of data.vehicles || []) {
+          if (v.routeNo) map[v.routeNo] = v.id;
+        }
+        setRouteToVehicleId(map);
+      })
+      .catch(() => {});
+  }, []);
+  return routeToVehicleId;
+}
+
 export function DriverGpsPortal({ onBack, onOpenTracking }: DriverGpsProps) {
   const { show } = useToast();
+  const routeToVehicleId = useVehicleIdMap();
   const [selectedRoute, setSelectedRoute] = useState("");
   const [sharing, setSharing] = useState(false);
   const [gps, setGps] = useState<GPSData | null>(null);
@@ -36,14 +55,35 @@ export function DriverGpsPortal({ onBack, onOpenTracking }: DriverGpsProps) {
   const progRef = useRef(0);
 
   const vehicle = routes.find((r) => r.routeNo === selectedRoute);
+  // The actual DB vehicle ID for the selected route
+  const dbVehicleId = routeToVehicleId[selectedRoute] || null;
 
-  // Real GPS handler
+  // Helper: POST location to backend with the correct DB vehicle ID
+  const postLocation = (data: GPSData, isSim: boolean) => {
+    if (!dbVehicleId) return; // Can't save without the DB vehicle ID
+    fetch("/api/locations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        vehicleId: dbVehicleId,
+        latitude: data.latitude,
+        longitude: data.longitude,
+        accuracy: data.accuracy,
+        speed: data.speed,
+        heading: data.heading,
+        altitude: data.altitude,
+        isSimulated: isSim,
+      }),
+    }).catch(() => {});
+  };
+
+  // Real GPS handler — uses the EXACT coordinates from the browser
   const handlePosition = (pos: GeolocationPosition) => {
     const data: GPSData = {
       latitude: pos.coords.latitude,
       longitude: pos.coords.longitude,
       accuracy: pos.coords.accuracy,
-      speed: pos.coords.speed != null ? pos.coords.speed * 3.6 : null,
+      speed: pos.coords.speed != null ? pos.coords.speed * 3.6 : null, // m/s → km/h
       heading: pos.coords.heading,
       altitude: pos.coords.altitude,
       timestamp: pos.timestamp,
@@ -51,22 +91,7 @@ export function DriverGpsPortal({ onBack, onOpenTracking }: DriverGpsProps) {
     setGps(data);
     setError(null);
     setUsingSimulated(false);
-
-    if (!vehicle) return;
-    fetch("/api/locations", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        vehicleId: vehicle.no.toString(),
-        latitude: data.latitude,
-        longitude: data.longitude,
-        accuracy: data.accuracy,
-        speed: data.speed,
-        heading: data.heading,
-        altitude: data.altitude,
-        isSimulated: false,
-      }),
-    }).catch(() => {});
+    postLocation(data, false);
   };
 
   const handleError = (err: GeolocationPositionError) => {
@@ -76,12 +101,11 @@ export function DriverGpsPortal({ onBack, onOpenTracking }: DriverGpsProps) {
     else if (err.code === 3) msg = "GPS request timed out. Showing simulated GPS data instead.";
     else msg = err.message;
     setError(msg);
-    // Fall back to simulated GPS
     setUsingSimulated(true);
     startSimulatedGPS();
   };
 
-  // Simulated GPS — moves along the route
+  // Simulated GPS — moves along the route with EXACT coordinates
   const startSimulatedGPS = () => {
     if (!vehicle) return;
     const stops = routeStops[vehicle.routeNo] || [];
@@ -118,38 +142,26 @@ export function DriverGpsPortal({ onBack, onOpenTracking }: DriverGpsProps) {
       };
       setGps(data);
       setTick((t) => t + 1);
-
-      // Save to backend
-      fetch("/api/locations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          vehicleId: vehicle.no.toString(),
-          latitude: data.latitude,
-          longitude: data.longitude,
-          accuracy: data.accuracy,
-          speed: data.speed,
-          heading: data.heading,
-          altitude: data.altitude,
-          isSimulated: true,
-        }),
-      }).catch(() => {});
+      postLocation(data, true);
     }, 2000);
   };
 
   const startSharing = () => {
     if (!vehicle) { show("Select your route first", "error"); return; }
+    if (!dbVehicleId) { show("Vehicle not found in database. Try again.", "error"); return; }
     setError(null);
     setSharing(true);
     setTripStartTime(Date.now());
     setGps(null);
 
+    // Start tracking session in backend
     fetch("/api/tracking/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ vehicleId: vehicle.no.toString() }),
+      body: JSON.stringify({ vehicleId: dbVehicleId }),
     }).catch(() => {});
 
+    // Try real GPS first
     if (navigator.geolocation) {
       watchIdRef.current = navigator.geolocation.watchPosition(handlePosition, handleError, {
         enableHighAccuracy: positionSource === "gps",
@@ -161,7 +173,6 @@ export function DriverGpsPortal({ onBack, onOpenTracking }: DriverGpsProps) {
       setUsingSimulated(true);
       startSimulatedGPS();
     }
-
     show("Live location sharing started");
   };
 
@@ -179,11 +190,11 @@ export function DriverGpsPortal({ onBack, onOpenTracking }: DriverGpsProps) {
     setGps(null);
     setUsingSimulated(false);
     setError(null);
-    if (vehicle) {
+    if (dbVehicleId) {
       fetch("/api/tracking/stop", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vehicleId: vehicle.no.toString() }),
+        body: JSON.stringify({ vehicleId: dbVehicleId }),
       }).catch(() => {});
     }
     show("Location sharing stopped", "info");
@@ -228,6 +239,7 @@ export function DriverGpsPortal({ onBack, onOpenTracking }: DriverGpsProps) {
               <span style={{ color: "#FDE68A" }}>
                 <strong>BUS {String(vehicle.no).padStart(2, "0")}</strong> → {vehicle.routeName} → RIT Campus
               </span>
+              {dbVehicleId && <span style={{ fontSize: 10, color: "var(--text3)", marginLeft: "auto" }}>ID: {dbVehicleId.slice(-6)}</span>}
             </div>
           )}
 
@@ -316,7 +328,7 @@ export function DriverGpsPortal({ onBack, onOpenTracking }: DriverGpsProps) {
 
           {/* Start/Stop button */}
           {!sharing ? (
-            <button className="rt-gps-share-btn-elite start" onClick={startSharing}>
+            <button className="rt-gps-share-btn-elite start" onClick={startSharing} disabled={!dbVehicleId}>
               <i className="fas fa-location-dot" /> Start Sharing Location
             </button>
           ) : (
@@ -333,15 +345,14 @@ export function DriverGpsPortal({ onBack, onOpenTracking }: DriverGpsProps) {
             </div>
           )}
 
-          {/* GPS Telemetry — shows real or simulated data */}
+          {/* GPS Telemetry — shows EXACT real or simulated data */}
           {sharing && (
             <div style={{ marginTop: 18 }}>
-              {/* Telemetry grid */}
               <div className="rt-gps-data-grid">
                 <div className="rt-gps-data-row">
                   <span className="rt-gps-data-label">Status</span>
                   <span className={`rt-gps-data-value ${gps ? "active" : "idle"}`}>
-                    {gps ? (usingSimulated ? "● Tracking (simulated)" : "● Tracking") : "idle"}
+                    {gps ? (usingSimulated ? "● Tracking (simulated)" : "● Tracking • GPS") : "idle"}
                   </span>
                 </div>
                 <div className="rt-gps-data-row">
