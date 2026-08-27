@@ -74,66 +74,52 @@ export function FleetMap({
     };
   }, []);
 
-  // Build bus icon — teardrop shape like Rapido/Chalo (green for live, gray for offline)
+  // Build bus icon — green teardrop with bus SVG, rotates by heading (like shared project)
   function buildBusIcon(isSelected: boolean, isLive: boolean, heading?: number): L.DivIcon {
-    const color = isLive ? "#22c55e" : "#64748b";
-    const size = isSelected ? 44 : 36;
-    const rotation = heading ? heading - 0 : 0;
+    const h = heading || 0;
+    const size = isSelected ? 44 : 40;
     return L.divIcon({
-      className: "",
-      html: `<div style="position:relative;display:flex;align-items:center;justify-content:center;">
-        ${isLive ? `<div style="position:absolute;width:${size + 12}px;height:${size + 12}px;border-radius:50%;background:${color};opacity:0.2;animation:rtBusPulse 1.5s ease-out infinite;"></div>` : ""}
-        <div style="position:relative;width:${size}px;height:${size}px;border-radius:50% 50% 50% 0;transform:rotate(-45deg) rotate(${rotation}deg);background:linear-gradient(135deg,${color},${color}dd);box-shadow:0 4px 16px rgba(0,0,0,0.4);border:3px solid white;display:flex;align-items:center;justify-content:center;">
-          <div style="transform:rotate(45deg) rotate(${-rotation}deg);">
-            <svg width="${size * 0.5}" height="${size * 0.5}" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M8 6v6"/><path d="M15 6v6"/><path d="M2 12h19.6"/><path d="M18 18h3s.5-1.7.8-2.8c.1-.4.2-.8.2-1.2 0-.4-.1-.8-.2-1.2l-1.4-5C20.1 6.8 19.1 6 18 6H4a2 2 0 0 0-2 2v10h3"/><circle cx="7" cy="18" r="2"/><path d="M9 18h5"/><circle cx="16" cy="18" r="2"/>
-            </svg>
-          </div>
-        </div>
+      className: '',
+      html: `<div style="display:flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:50% 50% 50% 0;background:linear-gradient(135deg,#22c55e,#16a34a);transform:rotate(${h - 45}deg);box-shadow:0 4px 16px rgba(34,197,94,0.5);border:3px solid white;">
+        <svg width="${size * 0.5}" height="${size * 0.5}" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(-${h - 45}deg);">
+          <path d="M8 6v6"/><path d="M15 6v6"/><path d="M2 12h19.6"/><path d="M18 18h3s.5-1.7.8-2.8c.1-.4.2-.8.2-1.2 0-.4-.1-.8-.2-1.2l-1.4-5C20.1 6.8 19.1 6 18 6H4a2 2 0 0 0-2 2v10h3"/><circle cx="7" cy="18" r="2"/><path d="M9 18h5"/><circle cx="16" cy="18" r="2"/>
+        </svg>
       </div>`,
       iconSize: [size, size],
-      iconAnchor: [size / 2, size],
-      popupAnchor: [0, -size],
+      iconAnchor: [size / 2, size / 2],
+      popupAnchor: [0, -size / 2],
     });
   }
 
-  // Build origin marker — red pin
+  // Build origin marker — orange circle with "A" (like shared project)
   function buildOriginIcon(): L.DivIcon {
     return L.divIcon({
-      className: "",
-      html: `<div style="width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#ef4444;box-shadow:0 4px 12px rgba(239,68,68,0.5);border:3px solid white;display:flex;align-items:center;justify-content:center;">
-        <div style="transform:rotate(45deg);width:8px;height:8px;border-radius:50%;background:white;"></div>
-      </div>`,
+      className: '',
+      html: `<div style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:#f59e0b;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.4);font-size:14px;color:white;font-weight:bold;">A</div>`,
       iconSize: [28, 28],
-      iconAnchor: [14, 28],
-      popupAnchor: [0, -28],
+      iconAnchor: [14, 14],
+      popupAnchor: [0, -14],
     });
   }
 
-  // Build destination (RIT Campus) marker — red with flag
+  // Build destination (RIT Campus) marker — red circle with "B" (like shared project)
   function buildDestIcon(): L.DivIcon {
     return L.divIcon({
-      className: "",
-      html: `<div style="width:32px;height:32px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#dc2626;box-shadow:0 4px 16px rgba(220,38,38,0.5);border:3px solid white;display:flex;align-items:center;justify-content:center;">
-        <div style="transform:rotate(45deg);">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/>
-          </svg>
-        </div>
-      </div>`,
-      iconSize: [32, 32],
-      iconAnchor: [16, 32],
-      popupAnchor: [0, -32],
+      className: '',
+      html: `<div style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:#ef4444;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.4);font-size:14px;color:white;font-weight:bold;">B</div>`,
+      iconSize: [28, 28],
+      iconAnchor: [14, 14],
+      popupAnchor: [0, -14],
     });
   }
 
   // Build boarding stop marker — small dot (cyan = upcoming, green = crossed)
-  function buildStopIcon(isCrossed: boolean, isRIT: boolean): L.DivIcon {
-    const color = isRIT ? "#dc2626" : isCrossed ? "#10b981" : "#06b6d4";
-    const size = isRIT ? 14 : 10;
+  function buildStopIcon(isCrossed: boolean): L.DivIcon {
+    const color = isCrossed ? "#22c55e" : "#06b6d4";
+    const size = 10;
     return L.divIcon({
-      className: "",
-      html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2px solid white;box-shadow:0 0 ${isCrossed ? "8px" : "4px"} ${color};"></div>`,
+      className: '',
+      html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2px solid white;box-shadow:0 0 4px ${color};"></div>`,
       iconSize: [size, size],
       iconAnchor: [size / 2, size / 2],
       popupAnchor: [0, -size / 2],
@@ -185,7 +171,8 @@ export function FleetMap({
         marker.setPopupContent(popupHtml);
       }
       if (isSelected && centerOnSelected) {
-        map.panTo(latlng, { animate: true });
+        // Follow the bus — center on it with high zoom (like shared project)
+        map.setView(latlng, Math.max(map.getZoom(), 14), { animate: true });
         marker.openPopup();
       }
     }
@@ -214,15 +201,15 @@ export function FleetMap({
     // Destination = RIT Campus
     const destCoords = RIT_CAMPUS_COORDS;
 
-    // Draw route line (origin → all stops → destination)
+    // Draw the route line — orange dashed (like shared project: origin → stops → destination)
     const latlngs: L.LatLngExpression[] = stops.map((s) => {
       const c = s.coords || RIT_CAMPUS_COORDS;
       return [c.lat, c.lng];
     });
 
-    // Draw the full route as a cyan dashed line
+    // Draw the full route as an orange dashed line
     L.polyline(latlngs, {
-      color: "#06b6d4", weight: 3, opacity: 0.6, dashArray: "8 6",
+      color: "#f59e0b", weight: 3, opacity: 0.6, dashArray: "8 8",
     }).addTo(routeLayer);
 
     // Draw origin marker (red pin)
@@ -242,7 +229,7 @@ export function FleetMap({
       if (i === 0 || i === stops.length - 1) return; // skip origin & destination (already drawn)
       const c = s.coords || RIT_CAMPUS_COORDS;
       const isCrossed = crossedStopNames.includes(s.stop);
-      const icon = buildStopIcon(isCrossed, false);
+      const icon = buildStopIcon(isCrossed);
       const marker = L.marker([c.lat, c.lng], { icon }).addTo(stopLayer);
       marker.bindPopup(`
         <div style="min-width: 160px;">
