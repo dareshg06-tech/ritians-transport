@@ -57,6 +57,7 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
   const [buses, setBuses] = useState<BusPosition[]>(() => initialBuses());
   const [tick, setTick] = useState(0);
   const [followToggle, setFollowToggle] = useState(true);
+  const [fullscreenMap, setFullscreenMap] = useState(false);
   const tickRef = useRef(0);
 
   useEffect(() => {
@@ -202,6 +203,23 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
                     transition: "left 0.2s ease",
                   }} />
                 </button>
+                {selectedBus && (
+                  <>
+                    <span style={{ fontSize: 10, color: "#10b981", display: "flex", alignItems: "center", gap: 4, marginLeft: 4 }}>
+                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#10b981", boxShadow: "0 0 6px #10b981" }} />
+                      LIVE · {tick}s ago
+                    </span>
+                    <button
+                      onClick={() => setFullscreenMap(true)}
+                      style={{
+                        padding: "4px 10px", borderRadius: 6, border: "1px solid #1e2330", background: "#1a1f29",
+                        color: "#94a3b8", fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", gap: 4,
+                      }}
+                    >
+                      <i className="fas fa-expand" /> Full
+                    </button>
+                  </>
+                )}
               </div>
             </div>
             <div style={{ height: 320, borderRadius: 10, overflow: "hidden", position: "relative" }}>
@@ -215,6 +233,60 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
               />
             </div>
           </div>
+
+          {/* Fullscreen map overlay */}
+          {fullscreenMap && (
+            <div style={{
+              position: "fixed", inset: 0, zIndex: 300, background: "#0a0d18",
+              display: "flex", flexDirection: "column",
+            }}>
+              {/* Fullscreen header */}
+              <div style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "8px 16px", background: "#000", borderBottom: "1px solid #1e2330",
+              }}>
+                <button
+                  onClick={() => setFullscreenMap(false)}
+                  style={{
+                    background: "transparent", border: "none", color: "#06b6d4", cursor: "pointer",
+                    fontSize: 13, display: "flex", alignItems: "center", gap: 6,
+                  }}
+                >
+                  <i className="fas fa-chevron-down" /> Back
+                </button>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  {selectedBus && (
+                    <span style={{ fontSize: 11, color: "#10b981", display: "flex", alignItems: "center", gap: 4 }}>
+                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#10b981", boxShadow: "0 0 6px #10b981" }} />
+                      LIVE · {tick}s ago
+                    </span>
+                  )}
+                  <button
+                    onClick={() => setFollowToggle(!followToggle)}
+                    style={{
+                      padding: "4px 10px", borderRadius: 6, border: followToggle ? "1px solid #06b6d4" : "1px solid #1e2330",
+                      background: followToggle ? "rgba(6,182,212,0.1)" : "#1a1f29",
+                      color: followToggle ? "#06b6d4" : "#94a3b8", fontSize: 10, cursor: "pointer",
+                      display: "flex", alignItems: "center", gap: 4,
+                    }}
+                  >
+                    <i className="fas fa-crosshairs" /> Following
+                  </button>
+                </div>
+              </div>
+              {/* Fullscreen map */}
+              <div style={{ flex: 1, position: "relative" }}>
+                <FleetMap
+                  vehicles={mapVehicles}
+                  selectedVehicleId={selectedRoute}
+                  onSelectVehicle={(id) => setSelectedRoute(id)}
+                  showRouteForVehicleId={selectedRoute}
+                  height="100%"
+                  centerOnSelected={followToggle}
+                />
+              </div>
+            </div>
+          )}
 
           {/* Boarding Points tracker — shows which stops the bus has crossed */}
           {selectedBus && selRoute && (() => {
@@ -285,13 +357,20 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
                   <div style={{ height: "100%", width: `${progressPct}%`, background: "linear-gradient(90deg, #10b981, #f59e0b)", borderRadius: 99, transition: "width 0.5s ease" }} />
                 </div>
 
-                {/* Stops list */}
+                {/* Stops list — with distance from previous + per-stop ETA */}
                 <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 280, overflowY: "auto" }}>
                   {stops.map((s, i) => {
                     const isCrossed = crossedStops.has(i);
                     const isCurrent = i === currentStopIdx;
                     const sc = s.coords || r.coords;
                     const distFromBus = haversine(currentPos, sc);
+                    // Distance from previous stop
+                    const prevStop = i > 0 ? stops[i - 1] : null;
+                    const prevCoords = prevStop ? (prevStop.coords || r.coords) : sc;
+                    const distFromPrev = haversine(prevCoords, sc);
+                    // Per-stop ETA based on distance from bus + speed
+                    const stopEta = distFromBus < 150 ? 0 : Math.max(1, Math.round((distFromBus / 1000) / (Math.max(selectedBus!.speed, 20) / 60)));
+                    const isFinal = i === stops.length - 1;
                     return (
                       <div key={i} style={{
                         display: "flex", alignItems: "center", gap: 8, padding: "6px 10px",
@@ -302,7 +381,7 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
                         {/* Status circle */}
                         <div style={{
                           width: 16, height: 16, borderRadius: "50%", flexShrink: 0,
-                          background: isCrossed ? "#10b981" : isCurrent ? "#06b6d4" : "#1e2330",
+                          background: isCrossed ? "#10b981" : isCurrent ? "#06b6d4" : isFinal ? "#f59e0b" : "#1e2330",
                           border: isCurrent ? "2px solid #06b6d4" : "none",
                           display: "flex", alignItems: "center", justifyContent: "center",
                           boxShadow: isCrossed ? "0 0 6px #10b981" : isCurrent ? "0 0 8px #06b6d4" : "none",
@@ -314,19 +393,26 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <span style={{
                             fontSize: 12, fontWeight: isCurrent ? 700 : 500,
-                            color: isCrossed ? "#10b981" : isCurrent ? "#06b6d4" : "#94a3b8",
+                            color: isCrossed ? "#10b981" : isCurrent ? "#06b6d4" : isFinal ? "#f59e0b" : "#94a3b8",
                           }}>
                             {i + 1}. {s.stop}
+                            {isFinal && <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, color: "#f59e0b", padding: "1px 5px", borderRadius: 99, background: "rgba(245,158,11,0.1)" }}>FINAL</span>}
                           </span>
                           <span style={{ fontSize: 10, color: "#64748b", marginLeft: 8, fontFamily: "var(--font-mono)" }}>{s.time}</span>
                         </div>
+                        {/* Distance from previous stop */}
+                        <span style={{ fontSize: 10, color: "#64748b", fontFamily: "var(--font-mono)" }}>
+                          {i > 0 ? `${(distFromPrev / 1000).toFixed(1)} km` : "—"}
+                        </span>
                         {/* Status badge */}
                         {isCrossed ? (
                           <span style={{ fontSize: 9, fontWeight: 700, color: "#10b981", padding: "2px 6px", borderRadius: 99, background: "rgba(16,185,129,0.1)" }}>CROSSED</span>
                         ) : isCurrent ? (
                           <span style={{ fontSize: 9, fontWeight: 700, color: "#06b6d4", padding: "2px 6px", borderRadius: 99, background: "rgba(6,182,212,0.1)" }}>HERE NOW</span>
                         ) : (
-                          <span style={{ fontSize: 9, fontWeight: 700, color: "#64748b", padding: "2px 6px", borderRadius: 99, background: "rgba(255,255,255,0.03)" }}>{distFromBus < 1000 ? `${Math.round(distFromBus)}m` : `${(distFromBus / 1000).toFixed(1)}km`}</span>
+                          <span style={{ fontSize: 9, fontWeight: 700, color: stopEta > 0 ? "#06b6d4" : "#64748b", padding: "2px 6px", borderRadius: 99, background: stopEta > 0 ? "rgba(6,182,212,0.08)" : "rgba(255,255,255,0.03)" }}>
+                            {stopEta > 0 ? `${stopEta} min` : "—"}
+                          </span>
                         )}
                       </div>
                     );
