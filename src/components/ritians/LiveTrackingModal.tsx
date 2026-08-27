@@ -58,13 +58,58 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
   const [tick, setTick] = useState(0);
   const [followToggle, setFollowToggle] = useState(true);
   const [fullscreenMap, setFullscreenMap] = useState(false);
+  // Track which buses have real driver GPS (from the API)
+  const [driverPositions, setDriverPositions] = useState<Record<string, { coords: Coord; speed: number; heading: number | null; timestamp: number }>>({});
   const tickRef = useRef(0);
 
+  // Fetch real driver positions from the API every 2 seconds
+  useEffect(() => {
+    if (!open) return;
+    const fetchDriverPositions = async () => {
+      try {
+        const res = await fetch("/api/vehicles");
+        const data = await res.json();
+        const vehicles = data.vehicles || [];
+        const positions: Record<string, { coords: Coord; speed: number; heading: number | null; timestamp: number }> = {};
+        for (const v of vehicles) {
+          if (v.lastLat != null && v.lastLng != null && v.lastSeenAt) {
+            const age = Date.now() - new Date(v.lastSeenAt).getTime();
+            // Only use driver position if it was updated within the last 60 seconds (active tracking)
+            if (age < 60000) {
+              positions[v.routeNo] = {
+                coords: { lat: v.lastLat, lng: v.lastLng },
+                speed: v.lastSpeed || 0,
+                heading: v.lastHeading,
+                timestamp: new Date(v.lastSeenAt).getTime(),
+              };
+            }
+          }
+        }
+        setDriverPositions(positions);
+      } catch (_) {}
+    };
+    fetchDriverPositions();
+    const fetchId = setInterval(fetchDriverPositions, 2000);
+    return () => clearInterval(fetchId);
+  }, [open]);
+
+  // Simulate movement for buses WITHOUT real driver GPS
   useEffect(() => {
     if (!open) return;
     const id = setInterval(() => {
       setBuses((prev) =>
         prev.map((b) => {
+          // If this bus has a real driver position, use it instead of simulating
+          const driverPos = driverPositions[b.routeNo];
+          if (driverPos) {
+            return {
+              ...b,
+              coords: driverPos.coords,
+              speed: driverPos.speed,
+              // Keep segIdx/progress for reference but don't use for position
+            };
+          }
+          // Otherwise simulate movement along the route
           const r = ALL_ROUTES.find((x) => x.routeNo === b.routeNo);
           if (!r) return b;
           const stops = routeStops[b.routeNo] || [];
@@ -86,7 +131,7 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
       setTick(tickRef.current);
     }, 2000);
     return () => clearInterval(id);
-  }, [open]);
+  }, [open, driverPositions]);
 
   if (!open) return null;
 
@@ -95,18 +140,23 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
   const busDistanceKm = selectedBus ? haversineDist(selectedBus.coords, RIT_CAMPUS_COORDS) / 1000 : 0;
   const etaMin = selectedBus ? Math.max(1, Math.round(busDistanceKm / (Math.max(selectedBus.speed, 20) / 60))) : 0;
 
-  // Build map vehicles
-  const mapVehicles: MapVehicle[] = buses.map((b) => ({
-    id: b.routeNo,
-    vehicleNumber: `BUS-${String(b.no).padStart(3, "0")}`,
-    vehicleName: b.routeName,
-    status: "live" as const,
-    coords: b.coords,
-    speed: b.speed,
-    lastSeenAt: new Date().toISOString(),
-    routeNo: b.routeNo,
-    selected: b.routeNo === selectedRoute,
-  }));
+  // Build map vehicles — use driver GPS position if available, otherwise simulated
+  const mapVehicles: MapVehicle[] = buses.map((b) => {
+    const driverPos = driverPositions[b.routeNo];
+    const isDriverTracking = !!driverPos;
+    return {
+      id: b.routeNo,
+      vehicleNumber: `BUS-${String(b.no).padStart(3, "0")}`,
+      vehicleName: b.routeName,
+      status: isDriverTracking ? "tracking" as const : "live" as const,
+      coords: b.coords,
+      speed: b.speed,
+      heading: driverPos?.heading ?? undefined,
+      lastSeenAt: driverPos ? new Date(driverPos.timestamp).toISOString() : new Date().toISOString(),
+      routeNo: b.routeNo,
+      selected: b.routeNo === selectedRoute,
+    };
+  });
 
   return (
     <div className="rt-modal-overlay" onClick={onClose} style={{ padding: 0, alignItems: "stretch", justifyContent: "stretch" }}>
@@ -452,6 +502,7 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
                 const r = ALL_ROUTES.find((x) => x.routeNo === b.routeNo);
                 const isSelected = b.routeNo === selectedRoute;
                 const isLive = b.speed > 0;
+                const isDriverGPS = !!driverPositions[b.routeNo];
                 const distKm = r ? Math.round(haversineDist(b.coords, RIT_CAMPUS_COORDS) / 100) / 10 : 0;
                 const etaMin = r ? Math.max(1, Math.round(distKm / (Math.max(b.speed, 20) / 60))) : 0;
                 const etaH = Math.floor(etaMin / 60);
@@ -489,8 +540,12 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
                         ) : null}
                       </div>
                     </div>
-                    {/* Status badge: LIVE (green) or OFF (red) */}
-                    {isLive ? (
+                    {/* Status badge: DRIVER GPS (cyan), LIVE (green), or OFF (red) */}
+                    {isDriverGPS ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 8px", borderRadius: 99, background: "rgba(6,182,212,0.15)", border: "1px solid rgba(6,182,212,0.4)", fontSize: 10, fontWeight: 700, color: "#06b6d4", flexShrink: 0 }}>
+                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#06b6d4", boxShadow: "0 0 6px #06b6d4" }} /> DRIVER GPS
+                      </div>
+                    ) : isLive ? (
                       <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 8px", borderRadius: 99, background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.3)", fontSize: 10, fontWeight: 700, color: "#10b981", flexShrink: 0 }}>
                         <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#10b981", boxShadow: "0 0 6px #10b981" }} /> LIVE
                       </div>
