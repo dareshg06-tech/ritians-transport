@@ -216,6 +216,126 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
             </div>
           </div>
 
+          {/* Boarding Points tracker — shows which stops the bus has crossed */}
+          {selectedBus && selRoute && (() => {
+            const stops = routeStops[selectedRoute] || [];
+            const r = selRoute;
+            const coordsList: Coord[] = stops.map((s) => s.coords || r.coords);
+            if (coordsList.length > 0) coordsList[coordsList.length - 1] = RIT_CAMPUS_COORDS;
+            const currentPos = selectedBus.coords;
+
+            // Determine which stops the bus has crossed
+            const haversine = (a: Coord, b: Coord) => {
+              const R = 6371000;
+              const toRad = (d: number) => (d * Math.PI) / 180;
+              const dLat = toRad(b.lat - a.lat);
+              const dLng = toRad(b.lng - a.lng);
+              const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+              return 2 * R * Math.asin(Math.sqrt(h));
+            };
+            const distToEnd = haversine(currentPos, RIT_CAMPUS_COORDS);
+            const crossedStops = new Set<number>();
+            stops.forEach((s, i) => {
+              const sc = s.coords || r.coords;
+              const distStopToEnd = haversine(sc, RIT_CAMPUS_COORDS);
+              if (distToEnd < distStopToEnd - 30) crossedStops.add(i);
+            });
+            // Also mark stops that the bus is currently at (within 150m)
+            const currentStopIdx = stops.findIndex((s, i) => {
+              const sc = s.coords || r.coords;
+              return haversine(currentPos, sc) < 150;
+            });
+
+            const startLocation = stops.length > 0 ? stops[0].stop : r.routeName;
+            const endLocation = stops.length > 0 ? stops[stops.length - 1].stop : "RIT Campus";
+            const crossedCount = crossedStops.size;
+            const totalStops = stops.length;
+            const progressPct = totalStops > 0 ? Math.round((crossedCount / totalStops) * 100) : 0;
+
+            return (
+              <div style={{ padding: 16, borderRadius: 12, background: "#13161c", border: "1px solid #1e2330", marginBottom: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#f59e0b", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                    <i className="fas fa-route" /> Boarding Points
+                  </div>
+                  <div style={{ fontSize: 11, color: "#64748b" }}>{crossedCount} / {totalStops} crossed · {progressPct}%</div>
+                </div>
+
+                {/* Route summary */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "8px 12px", background: "rgba(255,255,255,0.03)", borderRadius: 8 }}>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                    <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#10b981", boxShadow: "0 0 6px #10b981" }} />
+                    <div style={{ width: 2, height: 16, background: "#1e2330" }} />
+                    <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#f59e0b", boxShadow: "0 0 6px #f59e0b" }} />
+                  </div>
+                  <div style={{ flex: 1, display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                    <div>
+                      <div style={{ fontWeight: 600, color: "#10b981" }}>{startLocation}</div>
+                      <div style={{ fontSize: 10, color: "#64748b" }}>Departure: {stops[0]?.time || r.start}</div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontWeight: 600, color: "#f59e0b" }}>{endLocation}</div>
+                      <div style={{ fontSize: 10, color: "#64748b" }}>Arrival: {stops[stops.length - 1]?.time || "7.40 am"}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Progress bar */}
+                <div style={{ width: "100%", height: 4, background: "#1e2330", borderRadius: 99, marginBottom: 12, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${progressPct}%`, background: "linear-gradient(90deg, #10b981, #f59e0b)", borderRadius: 99, transition: "width 0.5s ease" }} />
+                </div>
+
+                {/* Stops list */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 280, overflowY: "auto" }}>
+                  {stops.map((s, i) => {
+                    const isCrossed = crossedStops.has(i);
+                    const isCurrent = i === currentStopIdx;
+                    const sc = s.coords || r.coords;
+                    const distFromBus = haversine(currentPos, sc);
+                    return (
+                      <div key={i} style={{
+                        display: "flex", alignItems: "center", gap: 8, padding: "6px 10px",
+                        borderRadius: 6,
+                        background: isCurrent ? "rgba(6,182,212,0.1)" : isCrossed ? "rgba(16,185,129,0.05)" : "transparent",
+                        border: isCurrent ? "1px solid rgba(6,182,212,0.3)" : "1px solid transparent",
+                      }}>
+                        {/* Status circle */}
+                        <div style={{
+                          width: 16, height: 16, borderRadius: "50%", flexShrink: 0,
+                          background: isCrossed ? "#10b981" : isCurrent ? "#06b6d4" : "#1e2330",
+                          border: isCurrent ? "2px solid #06b6d4" : "none",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          boxShadow: isCrossed ? "0 0 6px #10b981" : isCurrent ? "0 0 8px #06b6d4" : "none",
+                        }}>
+                          {isCrossed && <i className="fas fa-check" style={{ fontSize: 7, color: "#fff" }} />}
+                          {isCurrent && <div style={{ width: 4, height: 4, borderRadius: "50%", background: "#fff" }} />}
+                        </div>
+                        {/* Stop name + time */}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <span style={{
+                            fontSize: 12, fontWeight: isCurrent ? 700 : 500,
+                            color: isCrossed ? "#10b981" : isCurrent ? "#06b6d4" : "#94a3b8",
+                          }}>
+                            {i + 1}. {s.stop}
+                          </span>
+                          <span style={{ fontSize: 10, color: "#64748b", marginLeft: 8, fontFamily: "var(--font-mono)" }}>{s.time}</span>
+                        </div>
+                        {/* Status badge */}
+                        {isCrossed ? (
+                          <span style={{ fontSize: 9, fontWeight: 700, color: "#10b981", padding: "2px 6px", borderRadius: 99, background: "rgba(16,185,129,0.1)" }}>CROSSED</span>
+                        ) : isCurrent ? (
+                          <span style={{ fontSize: 9, fontWeight: 700, color: "#06b6d4", padding: "2px 6px", borderRadius: 99, background: "rgba(6,182,212,0.1)" }}>HERE NOW</span>
+                        ) : (
+                          <span style={{ fontSize: 9, fontWeight: 700, color: "#64748b", padding: "2px 6px", borderRadius: 99, background: "rgba(255,255,255,0.03)" }}>{distFromBus < 1000 ? `${Math.round(distFromBus)}m` : `${(distFromBus / 1000).toFixed(1)}km`}</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Route selector */}
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "#06b6d4", marginBottom: 8 }}>
