@@ -31,10 +31,6 @@ export interface FleetMapProps {
   className?: string;
 }
 
-function markerClass(status: MapVehicle["status"], selected?: boolean): string {
-  return `bus-marker ${status}${selected ? " selected" : ""}`;
-}
-
 export function FleetMap({
   vehicles, selectedVehicleId, onSelectVehicle, showRouteForVehicleId,
   crossedStopNames = [], height = "100%", centerOnSelected = true, className,
@@ -44,9 +40,11 @@ export function FleetMap({
   const markersRef = useRef<Map<string, L.Marker>>(new Map());
   const stopLayerRef = useRef<L.LayerGroup | null>(null);
   const routeLayerRef = useRef<L.LayerGroup | null>(null);
+  const originDestLayerRef = useRef<L.LayerGroup | null>(null);
   const onSelectRef = useRef(onSelectVehicle);
   useEffect(() => { onSelectRef.current = onSelectVehicle; }, [onSelectVehicle]);
 
+  // Init map once
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
     const map = L.map(containerRef.current, {
@@ -54,7 +52,6 @@ export function FleetMap({
       zoom: 11,
       zoomControl: true,
       attributionControl: true,
-      preferCanvas: false,
     });
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: "© OpenStreetMap contributors",
@@ -62,6 +59,7 @@ export function FleetMap({
     }).addTo(map);
     stopLayerRef.current = L.layerGroup().addTo(map);
     routeLayerRef.current = L.layerGroup().addTo(map);
+    originDestLayerRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
     delete (L.Icon.Default.prototype as unknown as { _getIconUrl?: unknown })._getIconUrl;
     L.Icon.Default.mergeOptions({
@@ -76,11 +74,79 @@ export function FleetMap({
     };
   }, []);
 
+  // Build bus icon — teardrop shape like Rapido/Chalo (green for live, gray for offline)
+  function buildBusIcon(isSelected: boolean, isLive: boolean, heading?: number): L.DivIcon {
+    const color = isLive ? "#22c55e" : "#64748b";
+    const size = isSelected ? 44 : 36;
+    const rotation = heading ? heading - 0 : 0;
+    return L.divIcon({
+      className: "",
+      html: `<div style="position:relative;display:flex;align-items:center;justify-content:center;">
+        ${isLive ? `<div style="position:absolute;width:${size + 12}px;height:${size + 12}px;border-radius:50%;background:${color};opacity:0.2;animation:rtBusPulse 1.5s ease-out infinite;"></div>` : ""}
+        <div style="position:relative;width:${size}px;height:${size}px;border-radius:50% 50% 50% 0;transform:rotate(-45deg) rotate(${rotation}deg);background:linear-gradient(135deg,${color},${color}dd);box-shadow:0 4px 16px rgba(0,0,0,0.4);border:3px solid white;display:flex;align-items:center;justify-content:center;">
+          <div style="transform:rotate(45deg) rotate(${-rotation}deg);">
+            <svg width="${size * 0.5}" height="${size * 0.5}" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M8 6v6"/><path d="M15 6v6"/><path d="M2 12h19.6"/><path d="M18 18h3s.5-1.7.8-2.8c.1-.4.2-.8.2-1.2 0-.4-.1-.8-.2-1.2l-1.4-5C20.1 6.8 19.1 6 18 6H4a2 2 0 0 0-2 2v10h3"/><circle cx="7" cy="18" r="2"/><path d="M9 18h5"/><circle cx="16" cy="18" r="2"/>
+            </svg>
+          </div>
+        </div>
+      </div>`,
+      iconSize: [size, size],
+      iconAnchor: [size / 2, size],
+      popupAnchor: [0, -size],
+    });
+  }
+
+  // Build origin marker — red pin
+  function buildOriginIcon(): L.DivIcon {
+    return L.divIcon({
+      className: "",
+      html: `<div style="width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#ef4444;box-shadow:0 4px 12px rgba(239,68,68,0.5);border:3px solid white;display:flex;align-items:center;justify-content:center;">
+        <div style="transform:rotate(45deg);width:8px;height:8px;border-radius:50%;background:white;"></div>
+      </div>`,
+      iconSize: [28, 28],
+      iconAnchor: [14, 28],
+      popupAnchor: [0, -28],
+    });
+  }
+
+  // Build destination (RIT Campus) marker — red with flag
+  function buildDestIcon(): L.DivIcon {
+    return L.divIcon({
+      className: "",
+      html: `<div style="width:32px;height:32px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#dc2626;box-shadow:0 4px 16px rgba(220,38,38,0.5);border:3px solid white;display:flex;align-items:center;justify-content:center;">
+        <div style="transform:rotate(45deg);">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/>
+          </svg>
+        </div>
+      </div>`,
+      iconSize: [32, 32],
+      iconAnchor: [16, 32],
+      popupAnchor: [0, -32],
+    });
+  }
+
+  // Build boarding stop marker — small dot (cyan = upcoming, green = crossed)
+  function buildStopIcon(isCrossed: boolean, isRIT: boolean): L.DivIcon {
+    const color = isRIT ? "#dc2626" : isCrossed ? "#10b981" : "#06b6d4";
+    const size = isRIT ? 14 : 10;
+    return L.divIcon({
+      className: "",
+      html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2px solid white;box-shadow:0 0 ${isCrossed ? "8px" : "4px"} ${color};"></div>`,
+      iconSize: [size, size],
+      iconAnchor: [size / 2, size / 2],
+      popupAnchor: [0, -size / 2],
+    });
+  }
+
+  // Update bus markers
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     const existing = markersRef.current;
 
+    // Remove markers no longer present
     for (const [id, marker] of existing.entries()) {
       if (!vehicles.find((v) => v.id === id)) {
         map.removeLayer(marker);
@@ -92,10 +158,11 @@ export function FleetMap({
       const latlng: L.LatLngExpression = [v.coords.lat, v.coords.lng];
       let marker = existing.get(v.id);
       const isSelected = v.id === selectedVehicleId;
-      const html = `<div class="${markerClass(v.status, isSelected)}"><i class="fas fa-bus"></i></div>`;
       const isLive = v.status === "live" || v.status === "tracking";
+      const icon = buildBusIcon(isSelected, isLive, v.heading);
+
       const popupHtml = `
-        <div style="min-width: 240px; color: #1a1d2a;">
+        <div style="min-width: 220px; color: #1a1d2a;">
           <div style="font-weight: 700; font-size: 14px; margin-bottom: 6px;">
             ${v.vehicleName} <span style="font-family: monospace; font-size: 11px; opacity: 0.6;">${v.vehicleNumber}</span>
           </div>
@@ -104,30 +171,16 @@ export function FleetMap({
           ${isLive ? `<div style="font-size: 12px; margin-bottom: 4px;">Updated: <span style="color: #10b981; font-weight: 600;">${v.lastSeenAt ? timeAgo(new Date(v.lastSeenAt)) : "just now"}</span></div>` : ""}
           <div style="font-size: 11px; color: #64748b; margin-top: 6px;">${v.coords.lat.toFixed(4)}, ${v.coords.lng.toFixed(4)}</div>
           ${v.routeNo ? `<div style="font-size: 11px; color: #64748b; margin-top: 2px;">Route: <span style="font-family: monospace; font-weight: 600; color: #f59e0b;">${v.routeNo}</span></div>` : ""}
-          <div style="font-size: 11px; color: #64748b; margin-top: 2px;">${v.vehicleName} → RIT Campus</div>
         </div>
       `;
+
       if (!marker) {
-        const icon = L.divIcon({
-          html,
-          className: "rt-leaflet-bus-icon",
-          iconSize: [36, 36],
-          iconAnchor: [18, 18],
-          popupAnchor: [0, -20],
-        });
-        marker = L.marker(latlng, { icon }).addTo(map);
+        marker = L.marker(latlng, { icon, zIndexOffset: 1000 }).addTo(map);
         marker.on("click", () => onSelectRef.current(v.id));
         marker.bindPopup(popupHtml);
         existing.set(v.id, marker);
       } else {
         marker.setLatLng(latlng);
-        const icon = L.divIcon({
-          html,
-          className: "rt-leaflet-bus-icon",
-          iconSize: [36, 36],
-          iconAnchor: [18, 18],
-          popupAnchor: [0, -20],
-        });
         marker.setIcon(icon);
         marker.setPopupContent(popupHtml);
       }
@@ -138,13 +191,16 @@ export function FleetMap({
     }
   }, [vehicles, selectedVehicleId, centerOnSelected]);
 
+  // Draw route line + origin/destination markers + boarding stops
   useEffect(() => {
     const map = mapRef.current;
     const stopLayer = stopLayerRef.current;
     const routeLayer = routeLayerRef.current;
-    if (!map || !stopLayer || !routeLayer) return;
+    const originDestLayer = originDestLayerRef.current;
+    if (!map || !stopLayer || !routeLayer || !originDestLayer) return;
     stopLayer.clearLayers();
     routeLayer.clearLayers();
+    originDestLayer.clearLayers();
 
     if (!showRouteForVehicleId) return;
     const v = vehicles.find((x) => x.id === showRouteForVehicleId);
@@ -153,38 +209,79 @@ export function FleetMap({
     const stops = getRouteStopsWithCoords(v.routeNo);
     if (stops.length === 0) return;
 
+    // Origin coordinates (first stop)
+    const originCoords = stops[0].coords || RIT_CAMPUS_COORDS;
+    // Destination = RIT Campus
+    const destCoords = RIT_CAMPUS_COORDS;
+
+    // Draw route line (origin → all stops → destination)
     const latlngs: L.LatLngExpression[] = stops.map((s) => {
       const c = s.coords || RIT_CAMPUS_COORDS;
       return [c.lat, c.lng];
     });
+
+    // Draw the full route as a cyan dashed line
     L.polyline(latlngs, {
-      color: "#22D3EE", weight: 2, opacity: 0.7, dashArray: "6 4",
+      color: "#06b6d4", weight: 3, opacity: 0.6, dashArray: "8 6",
     }).addTo(routeLayer);
 
+    // Draw origin marker (red pin)
+    const originIcon = buildOriginIcon();
+    L.marker([originCoords.lat, originCoords.lng], { icon: originIcon, zIndexOffset: 500 })
+      .addTo(originDestLayer)
+      .bindPopup(`<div style="min-width: 140px;"><div style="font-weight: 700; font-size: 13px; color: #ef4444;">START</div><div style="font-size: 12px; margin-top: 4px;">${stops[0].stop}</div><div style="font-size: 11px; color: #64748b; margin-top: 2px;">Departure: ${stops[0].time}</div></div>`);
+
+    // Draw destination marker (RIT Campus — red with flag)
+    const destIcon = buildDestIcon();
+    L.marker([destCoords.lat, destCoords.lng], { icon: destIcon, zIndexOffset: 500 })
+      .addTo(originDestLayer)
+      .bindPopup(`<div style="min-width: 140px;"><div style="font-weight: 700; font-size: 13px; color: #dc2626;">FINAL DESTINATION</div><div style="font-size: 12px; margin-top: 4px;">RIT Campus</div><div style="font-size: 11px; color: #64748b; margin-top: 2px;">Arrival: ${stops[stops.length - 1]?.time || "7.40 am"}</div></div>`);
+
+    // Draw boarding stop markers (skip first and last — those are origin/dest)
     stops.forEach((s, i) => {
+      if (i === 0 || i === stops.length - 1) return; // skip origin & destination (already drawn)
       const c = s.coords || RIT_CAMPUS_COORDS;
-      const isRIT = s.stop === "RIT Campus";
       const isCrossed = crossedStopNames.includes(s.stop);
-      const icon = L.divIcon({
-        html: `<div class="stop-marker ${isRIT ? "rit" : ""} ${isCrossed ? "crossed" : ""}"></div>`,
-        className: "rt-leaflet-stop-icon",
-        iconSize: isRIT ? [16, 16] : [12, 12],
-        iconAnchor: isRIT ? [8, 8] : [6, 6],
-      });
+      const icon = buildStopIcon(isCrossed, false);
       const marker = L.marker([c.lat, c.lng], { icon }).addTo(stopLayer);
       marker.bindPopup(`
         <div style="min-width: 160px;">
           <div style="font-weight: 700; font-size: 13px;">${i + 1}. ${s.stop}</div>
           <div style="font-size: 11px; opacity: 0.7; margin-top: 4px;">Time: <span style="font-family: monospace;">${s.time}</span></div>
           <div style="font-size: 11px; opacity: 0.6; margin-top: 2px;">${c.lat.toFixed(4)}, ${c.lng.toFixed(4)}</div>
-          ${isCrossed ? '<div style="font-size: 11px; color: #10b981; margin-top: 4px; font-weight: 600;">✓ Crossed</div>' : ""}
+          ${isCrossed ? '<div style="font-size: 11px; color: #10b981; margin-top: 4px; font-weight: 600;">✓ Crossed</div>' : '<div style="font-size: 11px; color: #06b6d4; margin-top: 4px; font-weight: 600;">Upcoming</div>'}
         </div>
       `);
     });
 
-    const bounds = L.latLngBounds(latlngs);
-    map.fitBounds(bounds, { padding: [50, 50], maxZoom: 13 });
+    // Fit bounds to include origin, bus, and destination ONLY (not all stops)
+    const selectedVehicle = vehicles.find((x) => x.id === showRouteForVehicleId);
+    const busCoords = selectedVehicle ? selectedVehicle.coords : originCoords;
+    const allBounds = L.latLngBounds([
+      [originCoords.lat, originCoords.lng],
+      [destCoords.lat, destCoords.lng],
+      [busCoords.lat, busCoords.lng],
+    ]);
+    map.fitBounds(allBounds, { padding: [80, 80], maxZoom: 13 });
+
+    // Hide non-selected bus markers when a route is being viewed
+    // (only show the selected bus on the map, hide the others to reduce clutter)
+    for (const [id, marker] of markersRef.current.entries()) {
+      if (id !== showRouteForVehicleId) {
+        marker.setOpacity(0); // hide non-selected buses
+      } else {
+        marker.setOpacity(1); // show selected bus
+      }
+    }
   }, [showRouteForVehicleId, vehicles, crossedStopNames]);
+
+  // Restore all bus markers when no route is selected
+  useEffect(() => {
+    if (showRouteForVehicleId) return;
+    for (const [, marker] of markersRef.current.entries()) {
+      marker.setOpacity(1);
+    }
+  }, [showRouteForVehicleId]);
 
   return <div ref={containerRef} className={className} style={{ height, width: "100%" }} />;
 }
