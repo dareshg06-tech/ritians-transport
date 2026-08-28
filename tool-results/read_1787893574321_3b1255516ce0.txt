@@ -1,0 +1,606 @@
+     1→"use client";
+     2→
+     3→import { useEffect, useRef, useState } from "react";
+     4→import dynamic from "next/dynamic";
+     5→import { routes as ALL_ROUTES, routeStops, RIT_CAMPUS_COORDS, type Coord } from "@/lib/ritians/data";
+     6→
+     7→interface LiveTrackingModalProps {
+     8→  open: boolean;
+     9→  onClose: () => void;
+    10→}
+    11→
+    12→interface BusPosition {
+    13→  routeNo: string;
+    14→  routeName: string;
+    15→  no: number;
+    16→  coords: Coord;
+    17→  progress: number;
+    18→  segIdx: number;
+    19→  speed: number;
+    20→}
+    21→
+    22→// Load Leaflet map client-side only
+    23→const FleetMap = dynamic(() => import("../fleet/FleetMap.client").then((m) => m.FleetMap), {
+    24→  ssr: false,
+    25→  loading: () => <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text3)" }}><i className="fas fa-spinner fa-spin" /> Loading map…</div>,
+    26→}) as typeof import("../fleet/FleetMap.client").FleetMap;
+    27→type MapVehicle = import("../fleet/FleetMap.client").MapVehicle;
+    28→
+    29→function lerp(a: Coord, b: Coord, t: number): Coord {
+    30→  return { lat: a.lat + (b.lat - a.lat) * t, lng: a.lng + (b.lng - a.lng) * t };
+    31→}
+    32→
+    33→function haversineDist(a: Coord, b: Coord): number {
+    34→  const R = 6371000;
+    35→  const toRad = (d: number) => (d * Math.PI) / 180;
+    36→  const dLat = toRad(b.lat - a.lat);
+    37→  const dLng = toRad(b.lng - a.lng);
+    38→  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+    39→  return 2 * R * Math.asin(Math.sqrt(h));
+    40→}
+    41→
+    42→// Track ALL routes — user wants "where is my bus" for all buses
+    43→const TRACKED_ROUTE_NOS = ALL_ROUTES.map((r) => r.routeNo);
+    44→
+    45→function initialBuses(): BusPosition[] {
+    46→  return TRACKED_ROUTE_NOS.map((rno) => {
+    47→    const r = ALL_ROUTES.find((x) => x.routeNo === rno)!;
+    48→    const stops = routeStops[rno] || [];
+    49→    const firstStop = stops[0];
+    50→    const startCoords = firstStop?.coords || r.coords;
+    51→    return { routeNo: r.routeNo, routeName: r.routeName, no: r.no, coords: startCoords, progress: 0, segIdx: 0, speed: 35 };
+    52→  });
+    53→}
+    54→
+    55→export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
+    56→  const [selectedRoute, setSelectedRoute] = useState<string>("R01");
+    57→  const [buses, setBuses] = useState<BusPosition[]>(() => initialBuses());
+    58→  const [tick, setTick] = useState(0);
+    59→  const [followToggle, setFollowToggle] = useState(true);
+    60→  const [fullscreenMap, setFullscreenMap] = useState(false);
+    61→  // Track which buses have real driver GPS (from the API)
+    62→  const [driverPositions, setDriverPositions] = useState<Record<string, { coords: Coord; speed: number; heading: number | null; timestamp: number }>>({});
+    63→  const tickRef = useRef(0);
+    64→
+    65→  // Fetch real driver positions from the API every 2 seconds
+    66→  useEffect(() => {
+    67→    if (!open) return;
+    68→    const fetchDriverPositions = async () => {
+    69→      try {
+    70→        const res = await fetch("/api/vehicles");
+    71→        const data = await res.json();
+    72→        const vehicles = data.vehicles || [];
+    73→        const positions: Record<string, { coords: Coord; speed: number; heading: number | null; timestamp: number }> = {};
+    74→        for (const v of vehicles) {
+    75→          if (v.lastLat != null && v.lastLng != null && v.lastSeenAt) {
+    76→            const age = Date.now() - new Date(v.lastSeenAt).getTime();
+    77→            // Only use driver position if it was updated within the last 60 seconds (active tracking)
+    78→            if (age < 60000) {
+    79→              positions[v.routeNo] = {
+    80→                coords: { lat: v.lastLat, lng: v.lastLng },
+    81→                speed: v.lastSpeed || 0,
+    82→                heading: v.lastHeading,
+    83→                timestamp: new Date(v.lastSeenAt).getTime(),
+    84→              };
+    85→            }
+    86→          }
+    87→        }
+    88→        setDriverPositions(positions);
+    89→      } catch (_) {}
+    90→    };
+    91→    fetchDriverPositions();
+    92→    const fetchId = setInterval(fetchDriverPositions, 2000);
+    93→    return () => clearInterval(fetchId);
+    94→  }, [open]);
+    95→
+    96→  // Simulate movement for buses WITHOUT real driver GPS
+    97→  useEffect(() => {
+    98→    if (!open) return;
+    99→    const id = setInterval(() => {
+   100→      setBuses((prev) =>
+   101→        prev.map((b) => {
+   102→          // If this bus has a real driver position, use it instead of simulating
+   103→          const driverPos = driverPositions[b.routeNo];
+   104→          if (driverPos) {
+   105→            return {
+   106→              ...b,
+   107→              coords: driverPos.coords,
+   108→              speed: driverPos.speed,
+   109→              // Keep segIdx/progress for reference but don't use for position
+   110→            };
+   111→          }
+   112→          // Otherwise simulate movement along the route
+   113→          const r = ALL_ROUTES.find((x) => x.routeNo === b.routeNo);
+   114→          if (!r) return b;
+   115→          const stops = routeStops[b.routeNo] || [];
+   116→          if (stops.length < 2) return b;
+   117→          const coordsList: Coord[] = stops.map((s) => s.coords || r.coords);
+   118→          coordsList[coordsList.length - 1] = RIT_CAMPUS_COORDS;
+   119→
+   120→          let newSeg = b.segIdx;
+   121→          let newProg = b.progress + 0.08;
+   122→          if (newProg >= 1) { newProg = 0; newSeg += 1; if (newSeg >= coordsList.length - 1) newSeg = 0; }
+   123→          const a = coordsList[newSeg];
+   124→          const c = coordsList[Math.min(newSeg + 1, coordsList.length - 1)];
+   125→          const newCoords = lerp(a, c, newProg);
+   126→          const newSpeed = 25 + Math.sin(Date.now() / 30000 + b.routeNo.charCodeAt(0)) * 12;
+   127→          return { ...b, segIdx: newSeg, progress: newProg, coords: newCoords, speed: newSpeed };
+   128→        })
+   129→      );
+   130→      tickRef.current += 1;
+   131→      setTick(tickRef.current);
+   132→    }, 2000);
+   133→    return () => clearInterval(id);
+   134→  }, [open, driverPositions]);
+   135→
+   136→  if (!open) return null;
+   137→
+   138→  const selRoute = ALL_ROUTES.find((r) => r.routeNo === selectedRoute);
+   139→  const selectedBus = buses.find((b) => b.routeNo === selectedRoute);
+   140→  const busDistanceKm = selectedBus ? haversineDist(selectedBus.coords, RIT_CAMPUS_COORDS) / 1000 : 0;
+   141→  const etaMin = selectedBus ? Math.max(1, Math.round(busDistanceKm / (Math.max(selectedBus.speed, 20) / 60))) : 0;
+   142→
+   143→  // Build map vehicles — use driver GPS position if available, otherwise simulated
+   144→  const mapVehicles: MapVehicle[] = buses.map((b) => {
+   145→    const driverPos = driverPositions[b.routeNo];
+   146→    const isDriverTracking = !!driverPos;
+   147→    return {
+   148→      id: b.routeNo,
+   149→      vehicleNumber: `BUS-${String(b.no).padStart(3, "0")}`,
+   150→      vehicleName: b.routeName,
+   151→      status: isDriverTracking ? "tracking" as const : "live" as const,
+   152→      coords: b.coords,
+   153→      speed: b.speed,
+   154→      heading: driverPos?.heading ?? undefined,
+   155→      lastSeenAt: driverPos ? new Date(driverPos.timestamp).toISOString() : new Date().toISOString(),
+   156→      routeNo: b.routeNo,
+   157→      selected: b.routeNo === selectedRoute,
+   158→    };
+   159→  });
+   160→
+   161→  return (
+   162→    <div className="rt-modal-overlay" onClick={onClose} style={{ padding: 0, alignItems: "stretch", justifyContent: "stretch" }}>
+   163→      <div
+   164→        className="rt-modal-box"
+   165→        style={{ maxWidth: "100%", maxHeight: "100vh", borderRadius: 0, border: "none", display: "flex", flexDirection: "column" }}
+   166→        onClick={(e) => e.stopPropagation()}
+   167→      >
+   168→        {/* Header bar */}
+   169→        <div style={{
+   170→          display: "flex", alignItems: "center", justifyContent: "space-between",
+   171→          padding: "12px 20px", background: "rgba(8,11,20,0.95)", borderBottom: "1px solid var(--border)",
+   172→          flexShrink: 0,
+   173→        }}>
+   174→          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+   175→            <div style={{
+   176→              width: 36, height: 36, borderRadius: 10,
+   177→              background: "linear-gradient(135deg, #f59e0b, #f97316)",
+   178→              display: "flex", alignItems: "center", justifyContent: "center",
+   179→              fontSize: 16, color: "#fff",
+   180→            }}>
+   181→              <i className="fas fa-bus-simple" />
+   182→            </div>
+   183→            <div>
+   184→              <div style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>Where is my Bus</div>
+   185→              <div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em" }}>Live Tracking • Chennai Routes</div>
+   186→            </div>
+   187→          </div>
+   188→          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+   189→            <div style={{
+   190→              display: "flex", alignItems: "center", gap: 6,
+   191→              padding: "5px 12px", borderRadius: 99,
+   192→              background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.4)",
+   193→              color: "#10b981", fontSize: 11, fontWeight: 600,
+   194→            }}>
+   195→              <i className="fas fa-wifi" style={{ animation: "rtPulse 2s infinite" }} /> ONLINE
+   196→            </div>
+   197→            <button onClick={onClose} style={{
+   198→              background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)", borderRadius: 99,
+   199→              width: 30, height: 30, color: "var(--text2)", cursor: "pointer", fontSize: 12,
+   200→            }}>
+   201→              <i className="fas fa-xmark" />
+   202→            </button>
+   203→          </div>
+   204→        </div>
+   205→
+   206→        {/* Scrollable body */}
+   207→        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px 8px", maxWidth: 900, margin: "0 auto", width: "100%" }}>
+   208→          {/* Stats row */}
+   209→          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+   210→            <div style={{ padding: 16, borderRadius: 12, background: "#13161c", border: "1px solid #1e2330" }}>
+   211→              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, color: "#06b6d4", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+   212→                <i className="fas fa-globe" /> Bus Distance
+   213→              </div>
+   214→              <div style={{ width: "100%", height: 3, background: "#1e2330", borderRadius: 99, marginBottom: 8, overflow: "hidden" }}>
+   215→                <div style={{ height: "100%", width: `${Math.min(100, busDistanceKm)}%`, background: "#06b6d4", borderRadius: 99, transition: "width 0.5s ease" }} />
+   216→              </div>
+   217→              <div style={{ fontSize: 18, fontWeight: 700, color: "#fff" }}>{busDistanceKm.toFixed(1)} km</div>
+   218→              <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>From your live location</div>
+   219→            </div>
+   220→            <div style={{ padding: 16, borderRadius: 12, background: "#13161c", border: "1px solid #1e2330" }}>
+   221→              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, color: "#10b981", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+   222→                <i className="fas fa-clock" /> ETA to RIT
+   223→              </div>
+   224→              <div style={{ width: "100%", height: 3, background: "#1e2330", borderRadius: 99, marginBottom: 8, overflow: "hidden" }}>
+   225→                <div style={{ height: "100%", width: `${Math.min(100, etaMin)}%`, background: "#10b981", borderRadius: 99, transition: "width 0.5s ease" }} />
+   226→              </div>
+   227→              <div style={{ fontSize: 18, fontWeight: 700, color: "#fff" }}>
+   228→                {etaMin > 60 ? `${Math.floor(etaMin / 60)}h ${etaMin % 60}m` : `${etaMin} min`}
+   229→              </div>
+   230→              <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>{selectedBus ? `${selectedBus.routeName} → RIT Campus` : "Waiting for bus"}</div>
+   231→            </div>
+   232→          </div>
+   233→
+   234→          {/* Map section — real Leaflet map */}
+   235→          <div style={{ padding: 12, borderRadius: 12, background: "#13161c", border: "1px solid #1e2330", marginBottom: 14 }}>
+   236→            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+   237→              <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#06b6d4", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+   238→                <i className="fas fa-map" /> Live Map
+   239→              </div>
+   240→              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+   241→                <span style={{ fontSize: 11, color: "#64748b" }}>Follow</span>
+   242→                <button
+   243→                  onClick={() => setFollowToggle(!followToggle)}
+   244→                  style={{
+   245→                    width: 36, height: 20, borderRadius: 99, border: "none", cursor: "pointer",
+   246→                    background: followToggle ? "#06b6d4" : "#374151", position: "relative",
+   247→                    transition: "background 0.2s ease",
+   248→                  }}
+   249→                >
+   250→                  <div style={{
+   251→                    position: "absolute", top: 2, left: followToggle ? 18 : 2,
+   252→                    width: 16, height: 16, borderRadius: "50%", background: "#fff",
+   253→                    transition: "left 0.2s ease",
+   254→                  }} />
+   255→                </button>
+   256→                {selectedBus && (
+   257→                  <>
+   258→                    <span style={{ fontSize: 10, color: "#10b981", display: "flex", alignItems: "center", gap: 4, marginLeft: 4 }}>
+   259→                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#10b981", boxShadow: "0 0 6px #10b981" }} />
+   260→                      LIVE · {tick}s ago
+   261→                    </span>
+   262→                    <button
+   263→                      onClick={() => setFullscreenMap(true)}
+   264→                      style={{
+   265→                        padding: "4px 10px", borderRadius: 6, border: "1px solid #1e2330", background: "#1a1f29",
+   266→                        color: "#94a3b8", fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", gap: 4,
+   267→                      }}
+   268→                    >
+   269→                      <i className="fas fa-expand" /> Full
+   270→                    </button>
+   271→                  </>
+   272→                )}
+   273→              </div>
+   274→            </div>
+   275→            <div style={{ height: 320, borderRadius: 10, overflow: "hidden", position: "relative" }}>
+   276→              <FleetMap
+   277→                vehicles={mapVehicles}
+   278→                selectedVehicleId={selectedRoute}
+   279→                onSelectVehicle={(id) => setSelectedRoute(id)}
+   280→                showRouteForVehicleId={selectedRoute}
+   281→                height="100%"
+   282→                centerOnSelected={followToggle}
+   283→              />
+   284→            </div>
+   285→          </div>
+   286→
+   287→          {/* Fullscreen map overlay */}
+   288→          {fullscreenMap && (
+   289→            <div style={{
+   290→              position: "fixed", inset: 0, zIndex: 300, background: "#0a0d18",
+   291→              display: "flex", flexDirection: "column",
+   292→            }}>
+   293→              {/* Fullscreen header */}
+   294→              <div style={{
+   295→                display: "flex", alignItems: "center", justifyContent: "space-between",
+   296→                padding: "8px 16px", background: "#000", borderBottom: "1px solid #1e2330",
+   297→              }}>
+   298→                <button
+   299→                  onClick={() => setFullscreenMap(false)}
+   300→                  style={{
+   301→                    background: "transparent", border: "none", color: "#06b6d4", cursor: "pointer",
+   302→                    fontSize: 13, display: "flex", alignItems: "center", gap: 6,
+   303→                  }}
+   304→                >
+   305→                  <i className="fas fa-chevron-down" /> Back
+   306→                </button>
+   307→                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+   308→                  {selectedBus && (
+   309→                    <span style={{ fontSize: 11, color: "#10b981", display: "flex", alignItems: "center", gap: 4 }}>
+   310→                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#10b981", boxShadow: "0 0 6px #10b981" }} />
+   311→                      LIVE · {tick}s ago
+   312→                    </span>
+   313→                  )}
+   314→                  <button
+   315→                    onClick={() => setFollowToggle(!followToggle)}
+   316→                    style={{
+   317→                      padding: "4px 10px", borderRadius: 6, border: followToggle ? "1px solid #06b6d4" : "1px solid #1e2330",
+   318→                      background: followToggle ? "rgba(6,182,212,0.1)" : "#1a1f29",
+   319→                      color: followToggle ? "#06b6d4" : "#94a3b8", fontSize: 10, cursor: "pointer",
+   320→                      display: "flex", alignItems: "center", gap: 4,
+   321→                    }}
+   322→                  >
+   323→                    <i className="fas fa-crosshairs" /> Following
+   324→                  </button>
+   325→                </div>
+   326→              </div>
+   327→              {/* Fullscreen map */}
+   328→              <div style={{ flex: 1, position: "relative" }}>
+   329→                <FleetMap
+   330→                  vehicles={mapVehicles}
+   331→                  selectedVehicleId={selectedRoute}
+   332→                  onSelectVehicle={(id) => setSelectedRoute(id)}
+   333→                  showRouteForVehicleId={selectedRoute}
+   334→                  height="100%"
+   335→                  centerOnSelected={followToggle}
+   336→                />
+   337→              </div>
+   338→            </div>
+   339→          )}
+   340→
+   341→          {/* Boarding Points tracker — shows which stops the bus has crossed */}
+   342→          {selectedBus && selRoute && (() => {
+   343→            const stops = routeStops[selectedRoute] || [];
+   344→            const r = selRoute;
+   345→            const coordsList: Coord[] = stops.map((s) => s.coords || r.coords);
+   346→            if (coordsList.length > 0) coordsList[coordsList.length - 1] = RIT_CAMPUS_COORDS;
+   347→            const currentPos = selectedBus.coords;
+   348→
+   349→            // Determine which stops the bus has crossed
+   350→            const haversine = (a: Coord, b: Coord) => {
+   351→              const R = 6371000;
+   352→              const toRad = (d: number) => (d * Math.PI) / 180;
+   353→              const dLat = toRad(b.lat - a.lat);
+   354→              const dLng = toRad(b.lng - a.lng);
+   355→              const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+   356→              return 2 * R * Math.asin(Math.sqrt(h));
+   357→            };
+   358→            const distToEnd = haversine(currentPos, RIT_CAMPUS_COORDS);
+   359→            const crossedStops = new Set<number>();
+   360→            stops.forEach((s, i) => {
+   361→              const sc = s.coords || r.coords;
+   362→              const distStopToEnd = haversine(sc, RIT_CAMPUS_COORDS);
+   363→              if (distToEnd < distStopToEnd - 30) crossedStops.add(i);
+   364→            });
+   365→            // Also mark stops that the bus is currently at (within 150m)
+   366→            const currentStopIdx = stops.findIndex((s, i) => {
+   367→              const sc = s.coords || r.coords;
+   368→              return haversine(currentPos, sc) < 150;
+   369→            });
+   370→
+   371→            const startLocation = stops.length > 0 ? stops[0].stop : r.routeName;
+   372→            const endLocation = stops.length > 0 ? stops[stops.length - 1].stop : "RIT Campus";
+   373→            const crossedCount = crossedStops.size;
+   374→            const totalStops = stops.length;
+   375→            const progressPct = totalStops > 0 ? Math.round((crossedCount / totalStops) * 100) : 0;
+   376→
+   377→            return (
+   378→              <div style={{ padding: 16, borderRadius: 12, background: "#13161c", border: "1px solid #1e2330", marginBottom: 14 }}>
+   379→                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+   380→                  <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#f59e0b", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+   381→                    <i className="fas fa-route" /> Boarding Points
+   382→                  </div>
+   383→                  <div style={{ fontSize: 11, color: "#64748b" }}>{crossedCount} / {totalStops} crossed · {progressPct}%</div>
+   384→                </div>
+   385→
+   386→                {/* Route summary */}
+   387→                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "8px 12px", background: "rgba(255,255,255,0.03)", borderRadius: 8 }}>
+   388→                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+   389→                    <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#10b981", boxShadow: "0 0 6px #10b981" }} />
+   390→                    <div style={{ width: 2, height: 16, background: "#1e2330" }} />
+   391→                    <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#f59e0b", boxShadow: "0 0 6px #f59e0b" }} />
+   392→                  </div>
+   393→                  <div style={{ flex: 1, display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+   394→                    <div>
+   395→                      <div style={{ fontWeight: 600, color: "#10b981" }}>{startLocation}</div>
+   396→                      <div style={{ fontSize: 10, color: "#64748b" }}>Departure: {stops[0]?.time || r.start}</div>
+   397→                    </div>
+   398→                    <div style={{ textAlign: "right" }}>
+   399→                      <div style={{ fontWeight: 600, color: "#f59e0b" }}>{endLocation}</div>
+   400→                      <div style={{ fontSize: 10, color: "#64748b" }}>Arrival: {stops[stops.length - 1]?.time || "7.40 am"}</div>
+   401→                    </div>
+   402→                  </div>
+   403→                </div>
+   404→
+   405→                {/* Progress bar */}
+   406→                <div style={{ width: "100%", height: 4, background: "#1e2330", borderRadius: 99, marginBottom: 12, overflow: "hidden" }}>
+   407→                  <div style={{ height: "100%", width: `${progressPct}%`, background: "linear-gradient(90deg, #10b981, #f59e0b)", borderRadius: 99, transition: "width 0.5s ease" }} />
+   408→                </div>
+   409→
+   410→                {/* Stops list — with distance from previous + per-stop ETA */}
+   411→                <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 280, overflowY: "auto" }}>
+   412→                  {stops.map((s, i) => {
+   413→                    const isCrossed = crossedStops.has(i);
+   414→                    const isCurrent = i === currentStopIdx;
+   415→                    const sc = s.coords || r.coords;
+   416→                    const distFromBus = haversine(currentPos, sc);
+   417→                    // Distance from previous stop
+   418→                    const prevStop = i > 0 ? stops[i - 1] : null;
+   419→                    const prevCoords = prevStop ? (prevStop.coords || r.coords) : sc;
+   420→                    const distFromPrev = haversine(prevCoords, sc);
+   421→                    // Per-stop ETA based on distance from bus + speed
+   422→                    const stopEta = distFromBus < 150 ? 0 : Math.max(1, Math.round((distFromBus / 1000) / (Math.max(selectedBus!.speed, 20) / 60)));
+   423→                    const isFinal = i === stops.length - 1;
+   424→                    return (
+   425→                      <div key={i} style={{
+   426→                        display: "flex", alignItems: "center", gap: 8, padding: "6px 10px",
+   427→                        borderRadius: 6,
+   428→                        background: isCurrent ? "rgba(6,182,212,0.1)" : isCrossed ? "rgba(16,185,129,0.05)" : "transparent",
+   429→                        border: isCurrent ? "1px solid rgba(6,182,212,0.3)" : "1px solid transparent",
+   430→                      }}>
+   431→                        {/* Status circle */}
+   432→                        <div style={{
+   433→                          width: 16, height: 16, borderRadius: "50%", flexShrink: 0,
+   434→                          background: isCrossed ? "#10b981" : isCurrent ? "#06b6d4" : isFinal ? "#f59e0b" : "#1e2330",
+   435→                          border: isCurrent ? "2px solid #06b6d4" : "none",
+   436→                          display: "flex", alignItems: "center", justifyContent: "center",
+   437→                          boxShadow: isCrossed ? "0 0 6px #10b981" : isCurrent ? "0 0 8px #06b6d4" : "none",
+   438→                        }}>
+   439→                          {isCrossed && <i className="fas fa-check" style={{ fontSize: 7, color: "#fff" }} />}
+   440→                          {isCurrent && <div style={{ width: 4, height: 4, borderRadius: "50%", background: "#fff" }} />}
+   441→                        </div>
+   442→                        {/* Stop name + time */}
+   443→                        <div style={{ flex: 1, minWidth: 0 }}>
+   444→                          <span style={{
+   445→                            fontSize: 12, fontWeight: isCurrent ? 700 : 500,
+   446→                            color: isCrossed ? "#10b981" : isCurrent ? "#06b6d4" : isFinal ? "#f59e0b" : "#94a3b8",
+   447→                          }}>
+   448→                            {i + 1}. {s.stop}
+   449→                            {isFinal && <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, color: "#f59e0b", padding: "1px 5px", borderRadius: 99, background: "rgba(245,158,11,0.1)" }}>FINAL</span>}
+   450→                          </span>
+   451→                          <span style={{ fontSize: 10, color: "#64748b", marginLeft: 8, fontFamily: "var(--font-mono)" }}>{s.time}</span>
+   452→                        </div>
+   453→                        {/* Distance from previous stop */}
+   454→                        <span style={{ fontSize: 10, color: "#64748b", fontFamily: "var(--font-mono)" }}>
+   455→                          {i > 0 ? `${(distFromPrev / 1000).toFixed(1)} km` : "—"}
+   456→                        </span>
+   457→                        {/* Status badge */}
+   458→                        {isCrossed ? (
+   459→                          <span style={{ fontSize: 9, fontWeight: 700, color: "#10b981", padding: "2px 6px", borderRadius: 99, background: "rgba(16,185,129,0.1)" }}>CROSSED</span>
+   460→                        ) : isCurrent ? (
+   461→                          <span style={{ fontSize: 9, fontWeight: 700, color: "#06b6d4", padding: "2px 6px", borderRadius: 99, background: "rgba(6,182,212,0.1)" }}>HERE NOW</span>
+   462→                        ) : (
+   463→                          <span style={{ fontSize: 9, fontWeight: 700, color: stopEta > 0 ? "#06b6d4" : "#64748b", padding: "2px 6px", borderRadius: 99, background: stopEta > 0 ? "rgba(6,182,212,0.08)" : "rgba(255,255,255,0.03)" }}>
+   464→                            {stopEta > 0 ? `${stopEta} min` : "—"}
+   465→                          </span>
+   466→                        )}
+   467→                      </div>
+   468→                    );
+   469→                  })}
+   470→                </div>
+   471→              </div>
+   472→            );
+   473→          })()}
+   474→
+   475→          {/* Route selector */}
+   476→          <div style={{ marginBottom: 14 }}>
+   477→            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "#06b6d4", marginBottom: 8 }}>
+   478→              <i className="fas fa-route" /> Select Route
+   479→            </div>
+   480→            <select
+   481→              value={selectedRoute}
+   482→              onChange={(e) => setSelectedRoute(e.target.value)}
+   483→              style={{
+   484→                width: "100%", padding: "10px 14px",
+   485→                background: "#13161c", border: "1px solid #1e2330", borderRadius: 8,
+   486→                color: "#e2e8f0", fontSize: 13, outline: "none", cursor: "pointer", appearance: "none",
+   487→              }}
+   488→            >
+   489→              {ALL_ROUTES.map((r) => (
+   490→                <option key={r.routeNo} value={r.routeNo}>{r.routeNo} · {r.routeName} (Bus {r.no})</option>
+   491→              ))}
+   492→            </select>
+   493→          </div>
+   494→
+   495→          {/* Route cards */}
+   496→          <div style={{ marginBottom: 14 }}>
+   497→            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "#64748b", marginBottom: 8 }}>
+   498→              {buses.length} Buses Live on Map
+   499→            </div>
+   500→            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+   501→              {buses.map((b) => {
+   502→                const r = ALL_ROUTES.find((x) => x.routeNo === b.routeNo);
+   503→                const isSelected = b.routeNo === selectedRoute;
+   504→                const isLive = b.speed > 0;
+   505→                const isDriverGPS = !!driverPositions[b.routeNo];
+   506→                const distKm = r ? Math.round(haversineDist(b.coords, RIT_CAMPUS_COORDS) / 100) / 10 : 0;
+   507→                const etaMin = r ? Math.max(1, Math.round(distKm / (Math.max(b.speed, 20) / 60))) : 0;
+   508→                const etaH = Math.floor(etaMin / 60);
+   509→                const etaM = etaMin % 60;
+   510→                const routeStopsList = r ? (routeStops[r.routeNo] || []) : [];
+   511→                const startLocation = routeStopsList.length > 0 ? routeStopsList[0].stop : (r?.routeName || "—");
+   512→                const endLocation = routeStopsList.length > 0 ? routeStopsList[routeStopsList.length - 1].stop : "RIT Campus";
+   513→                return (
+   514→                  <button
+   515→                    key={b.routeNo}
+   516→                    onClick={() => setSelectedRoute(b.routeNo)}
+   517→                    style={{
+   518→                      display: "flex", alignItems: "center", gap: 12,
+   519→                      padding: "12px 14px", borderRadius: 10,
+   520→                      background: isSelected ? "rgba(6,182,212,0.08)" : "#13161c",
+   521→                      border: `1px solid ${isSelected ? "#06b6d4" : "#1e2330"}`,
+   522→                      cursor: "pointer", transition: "all 0.18s ease", textAlign: "left",
+   523→                    }}
+   524→                  >
+   525→                    <div style={{ width: 44, height: 44, borderRadius: 8, flexShrink: 0, background: "rgba(255,255,255,0.06)", border: "1px solid #1e2330", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+   526→                      <div style={{ fontSize: 8, color: "#64748b", fontWeight: 700, textTransform: "uppercase" }}>RTE</div>
+   527→                      <div style={{ fontSize: 12, fontWeight: 700, color: "#f59e0b", fontFamily: "var(--font-mono)" }}>{b.routeNo}</div>
+   528→                    </div>
+   529→                    <div style={{ flex: 1, minWidth: 0 }}>
+   530→                      <div style={{ fontSize: 13, fontWeight: 600, color: "#e2e8f0" }}>
+   531→                        {startLocation} → {endLocation}
+   532→                      </div>
+   533→                      <div style={{ display: "flex", gap: 12, marginTop: 3, fontSize: 11, color: "#64748b" }}>
+   534→                        <span><i className="fas fa-road" style={{ marginRight: 4 }} />{distKm.toFixed(1)} km</span>
+   535→                        {isLive ? (
+   536→                          <>
+   537→                            <span><i className="fas fa-clock" style={{ marginRight: 4 }} />~{etaH > 0 ? `${etaH}h ` : ""}{etaM}m</span>
+   538→                            <span style={{ color: "#06b6d4" }}><i className="fas fa-gauge-high" style={{ marginRight: 4 }} />{Math.round(b.speed)} km/h</span>
+   539→                          </>
+   540→                        ) : null}
+   541→                      </div>
+   542→                    </div>
+   543→                    {/* Status badge: DRIVER GPS (cyan), LIVE (green), or OFF (red) */}
+   544→                    {isDriverGPS ? (
+   545→                      <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 8px", borderRadius: 99, background: "rgba(6,182,212,0.15)", border: "1px solid rgba(6,182,212,0.4)", fontSize: 10, fontWeight: 700, color: "#06b6d4", flexShrink: 0 }}>
+   546→                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#06b6d4", boxShadow: "0 0 6px #06b6d4" }} /> DRIVER GPS
+   547→                      </div>
+   548→                    ) : isLive ? (
+   549→                      <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 8px", borderRadius: 99, background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.3)", fontSize: 10, fontWeight: 700, color: "#10b981", flexShrink: 0 }}>
+   550→                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#10b981", boxShadow: "0 0 6px #10b981" }} /> LIVE
+   551→                      </div>
+   552→                    ) : (
+   553→                      <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 8px", borderRadius: 99, background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)", fontSize: 10, fontWeight: 700, color: "#ef4444", flexShrink: 0 }}>
+   554→                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#ef4444" }} /> OFF
+   555→                      </div>
+   556→                    )}
+   557→                    <i className="fas fa-chevron-right" style={{ color: "#64748b", fontSize: 10, flexShrink: 0 }} />
+   558→                  </button>
+   559→                );
+   560→              })}
+   561→            </div>
+   562→          </div>
+   563→
+   564→          {/* System Status */}
+   565→          <div style={{ padding: 16, borderRadius: 12, background: "#13161c", border: "1px solid #1e2330", marginBottom: 14 }}>
+   566→            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, color: "#94a3b8", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+   567→              <i className="fas fa-signal" /> System Status
+   568→            </div>
+   569→            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 24px" }}>
+   570→              {[
+   571→                { icon: "fa-location-crosshairs", label: "Your Location", on: true },
+   572→                { icon: "fa-wifi", label: "Network", on: true },
+   573→                { icon: "fa-paper-plane", label: "Server", on: true },
+   574→                { icon: "fa-tower-broadcast", label: "Live Location", on: selectedBus?.speed ? selectedBus.speed > 0 : false },
+   575→                { icon: "fa-wave-square", label: "Bus Tracking", on: selectedBus?.speed ? selectedBus.speed > 0 : false },
+   576→                { icon: "fa-map-pin", label: "Trip Status", on: selectedBus?.speed ? selectedBus.speed > 0 : false },
+   577→              ].map((item) => (
+   578→                <div key={item.label} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 0" }}>
+   579→                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#94a3b8" }}>
+   580→                    <i className={`fas ${item.icon}`} style={{ color: item.on ? "#10b981" : "#64748b", width: 14, textAlign: "center" }} />
+   581→                    <span>{item.label}</span>
+   582→                  </div>
+   583→                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+   584→                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: item.on ? "#10b981" : "#ef4444", boxShadow: `0 0 6px ${item.on ? "#10b981" : "#ef4444"}` }} />
+   585→                    <span style={{ fontSize: 11, fontWeight: 700, color: item.on ? "#10b981" : "#ef4444" }}>{item.on ? "ON" : "OFF"}</span>
+   586→                  </div>
+   587→                </div>
+   588→              ))}
+   589→            </div>
+   590→            <div style={{ marginTop: 12, fontSize: 11, color: "#64748b" }}>
+   591→              Live updates from driver every 2 seconds. Last update: {tick > 0 ? `${tick * 2}s ago` : "never"}.
+   592→            </div>
+   593→          </div>
+   594→
+   595→          {/* Footer */}
+   596→          <div style={{ textAlign: "center", padding: "12px 0 8px", borderTop: "1px solid rgba(30,35,48,0.5)" }}>
+   597→            <div style={{ fontSize: 11, color: "#64748b" }}>Where is my Bus · 52 Chennai routes · All buses go to RIT Campus</div>
+   598→          </div>
+   599→        </div>
+   600→      </div>
+   601→    </div>
+   602→  );
+   603→}
+   604→
+   605→export {};
+   606→
