@@ -3,11 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { routes as ALL_ROUTES, routeStops, RIT_CAMPUS_COORDS, type Coord } from "@/lib/ritians/data";
+import { getRouteStopsWithCoords } from "@/lib/ritians/fleet";
 import { useToast } from "@/lib/ritians/toast";
 
-interface LiveTrackingModalProps {
-  open: boolean;
-  onClose: () => void;
+interface LiveTrackingPageProps {
+  onBack: () => void;
 }
 
 // Load Leaflet map client-side only
@@ -51,7 +51,9 @@ interface BusPosition {
 function initialBuses(): BusPosition[] {
   return TRACKED_ROUTE_NOS.map((rno) => {
     const r = ALL_ROUTES.find((x) => x.routeNo === rno)!;
-    const stops = routeStops[rno] || [];
+    // Use getRouteStopsWithCoords so the first stop has the route's actual
+    // starting coordinates (not undefined fallback to r.coords).
+    const stops = getRouteStopsWithCoords(rno);
     const firstStop = stops[0];
     const startCoords = firstStop?.coords || r.coords;
     return { routeNo: r.routeNo, routeName: r.routeName, no: r.no, coords: startCoords, progress: 0, segIdx: 0, speed: 35 };
@@ -133,7 +135,13 @@ function useVehicleIdMap() {
   return routeToVehicleId;
 }
 
-function DriverModePanel() {
+function DriverModePanel({
+  driverPositions,
+  tick,
+}: {
+  driverPositions: Record<string, { coords: Coord; speed: number; heading: number | null; timestamp: number }>;
+  tick: number;
+}) {
   const { show } = useToast();
   const routeToVehicleId = useVehicleIdMap();
   const [selectedRoute, setSelectedRoute] = useState("");
@@ -198,7 +206,10 @@ function DriverModePanel() {
 
   const startSimulatedGPS = () => {
     if (!vehicle) return;
-    const stops = routeStops[vehicle.routeNo] || [];
+    // Use getRouteStopsWithCoords so each stop has interpolated coordinates
+    // between the route's main destination and RIT Campus. Without this, all
+    // stops fall back to the route's main coords and the bus appears stuck.
+    const stops = getRouteStopsWithCoords(vehicle.routeNo);
     if (stops.length < 2) return;
     const coordsList: Coord[] = stops.map((s) => s.coords || vehicle.coords);
     coordsList[coordsList.length - 1] = RIT_CAMPUS_COORDS;
@@ -221,7 +232,8 @@ function DriverModePanel() {
     setTimeout(() => {
       simIntervalRef.current = setInterval(() => {
         const segIdx = segIdxRef.current;
-        const prog = progRef.current + 0.05;
+        // 0.15 per 2s = ~13 seconds per segment, so the bus visibly moves across the route
+        const prog = progRef.current + 0.15;
         if (prog >= 1) {
           progRef.current = 0;
           segIdxRef.current = Math.min(segIdx + 1, coordsList.length - 2);
@@ -494,6 +506,66 @@ function DriverModePanel() {
           </div>
         </div>
       )}
+
+      {/* Live map preview — shows the bus moving in real time as the driver shares location */}
+      {sharing && selectedRoute && (() => {
+        const r = ALL_ROUTES.find((x) => x.routeNo === selectedRoute);
+        if (!r) return null;
+        // Use the live driver position from the parent (polled from /api/vehicles).
+        // This is the SAME position the passenger-side map will see — so the driver
+        // can verify their bus icon is actually moving on the map.
+        const livePos = driverPositions[selectedRoute];
+        const currentCoords: Coord = livePos?.coords || (gps ? { lat: gps.latitude, lng: gps.longitude } : r.coords);
+        const currentSpeed = livePos?.speed ?? (gps ? (gps.speed ?? 0) : 0);
+        const currentHeading = livePos?.heading ?? (gps ? gps.heading : undefined);
+
+        const mapVehicles: MapVehicle[] = [{
+          id: selectedRoute,
+          vehicleNumber: `BUS-${String(r.no).padStart(3, "0")}`,
+          vehicleName: r.routeName,
+          status: "tracking" as const,
+          coords: currentCoords,
+          speed: currentSpeed,
+          heading: currentHeading ?? undefined,
+          lastSeenAt: livePos ? new Date(livePos.timestamp).toISOString() : (gps ? new Date(gps.timestamp).toISOString() : new Date().toISOString()),
+          routeNo: selectedRoute,
+          selected: true,
+        }];
+
+        return (
+          <div className="rounded-2xl border border-[#1f2538] bg-[#10131f] p-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[10px] uppercase tracking-widest text-cyan-400 font-bold flex items-center gap-1.5">
+                <i className="fas fa-map" /> Live Bus Position
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-emerald-400 flex items-center gap-1">
+                  <span
+                    className="w-1.5 h-1.5 rounded-full bg-emerald-500"
+                    style={{ boxShadow: "0 0 6px #10b981" }}
+                  />
+                  LIVE · {tick * 2}s
+                </span>
+              </div>
+            </div>
+            <div style={{ height: 280 }} className="rounded-xl overflow-hidden relative">
+              <FleetMap
+                vehicles={mapVehicles}
+                selectedVehicleId={selectedRoute}
+                onSelectVehicle={() => {}}
+                showRouteForVehicleId={selectedRoute}
+                height="100%"
+                centerOnSelected={true}
+              />
+            </div>
+            <div className="mt-2 text-[10px] text-slate-500 flex items-center gap-3 flex-wrap">
+              <span><i className="fas fa-location-dot text-cyan-400 mr-1" />{currentCoords.lat.toFixed(4)}, {currentCoords.lng.toFixed(4)}</span>
+              <span><i className="fas fa-gauge-high text-amber-400 mr-1" />{Math.round(currentSpeed)} km/h</span>
+              {currentHeading != null && <span><i className="fas fa-compass text-slate-400 mr-1" />{Math.round(currentHeading)}°</span>}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -522,7 +594,9 @@ function RouteDetailView({
   const busDistanceKm = haversineDist(selectedBus.coords, RIT_CAMPUS_COORDS) / 1000;
   const etaMin = Math.max(1, Math.round(busDistanceKm / (Math.max(selectedBus.speed, 20) / 60)));
   const isDriverGPS = !!driverPositions[routeNo];
-  const stops = routeStops[routeNo] || [];
+  // Use getRouteStopsWithCoords so each stop has interpolated coordinates —
+  // otherwise the boarding points tracker shows all stops at the same place.
+  const stops = getRouteStopsWithCoords(routeNo);
   const r = selRoute;
   const coordsList: Coord[] = stops.map((s) => s.coords || r.coords);
   if (coordsList.length > 0) coordsList[coordsList.length - 1] = RIT_CAMPUS_COORDS;
@@ -895,9 +969,9 @@ function FindMyBusTab({
 }
 
 // ============================================================================
-// Main Modal
+// Main Page (full-screen)
 // ============================================================================
-export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
+export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
   const [mode, setMode] = useState<"online" | "offline">("online");
   const [tab, setTab] = useState<"passenger" | "driver">("passenger");
   const [selectedRoute, setSelectedRoute] = useState<string | null>(null);
@@ -908,7 +982,6 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
 
   // Fetch real driver positions from the API every 2 seconds
   useEffect(() => {
-    if (!open) return;
     const fetchDriverPositions = async () => {
       try {
         const res = await fetch("/api/vehicles");
@@ -934,21 +1007,34 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
     fetchDriverPositions();
     const fetchId = setInterval(fetchDriverPositions, 2000);
     return () => clearInterval(fetchId);
-  }, [open]);
+  }, []);
 
-  // Simulate movement for buses WITHOUT real driver GPS
+  // Update bus positions every 2 seconds:
+  // - If a real driver is sharing GPS (driverPositions[routeNo] exists), the bus
+  //   snaps to that exact GPS coordinate — the bus icon will MOVE as the driver moves.
+  // - Otherwise, simulate movement along the route so the demo still looks alive.
   useEffect(() => {
-    if (!open) return;
     const id = setInterval(() => {
       setBuses((prev) =>
         prev.map((b) => {
           const driverPos = driverPositions[b.routeNo];
           if (driverPos) {
-            return { ...b, coords: driverPos.coords, speed: driverPos.speed };
+            // REAL DRIVER GPS — use the exact reported coordinates.
+            // This is what makes the bus icon actually move with the driver.
+            return {
+              ...b,
+              coords: driverPos.coords,
+              speed: driverPos.speed,
+              // Keep heading if the device reported one
+            };
           }
+          // Simulated movement for buses without a real driver
           const r = ALL_ROUTES.find((x) => x.routeNo === b.routeNo);
           if (!r) return b;
-          const stops = routeStops[b.routeNo] || [];
+          // Use getRouteStopsWithCoords so each stop has interpolated coordinates
+          // between the route destination and RIT Campus — otherwise all stops
+          // fall back to the route's main coords and the bus appears stuck.
+          const stops = getRouteStopsWithCoords(b.routeNo);
           if (stops.length < 2) return b;
           const coordsList: Coord[] = stops.map((s) => s.coords || r.coords);
           coordsList[coordsList.length - 1] = RIT_CAMPUS_COORDS;
@@ -967,32 +1053,31 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
       setTick(tickRef.current);
     }, 2000);
     return () => clearInterval(id);
-  }, [open, driverPositions]);
+  }, [driverPositions]);
 
-  // Lock body scroll when modal open
+  // Scroll to top when the page mounts
   useEffect(() => {
-    if (open) {
-      document.body.style.overflow = "hidden";
-      return () => { document.body.style.overflow = ""; };
-    }
-  }, [open]);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "auto" });
+  }, []);
 
-  const handleClose = useCallback(() => {
+  const handleBack = useCallback(() => {
     setSelectedRoute(null);
-    onClose();
-  }, [onClose]);
-
-  if (!open) return null;
+    onBack();
+  }, [onBack]);
 
   return (
-    <div
-      className="fixed inset-0 z-[200] bg-[#0a0d18] flex flex-col text-slate-100"
-      style={{ animation: "rtFadeIn 0.2s ease" }}
-    >
+    <div className="min-h-screen flex flex-col bg-[#0a0d18] text-slate-100">
       {/* Header */}
       <header className="sticky top-0 z-40 bg-[#0a0d18]/95 backdrop-blur border-b border-[#1f2538] flex-shrink-0">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
+            <button
+              onClick={handleBack}
+              aria-label="Back"
+              className="w-9 h-9 rounded-lg bg-white/[0.06] border border-[#1f2538] text-slate-300 hover:bg-white/[0.12] hover:text-white transition-colors flex items-center justify-center text-[12px] flex-shrink-0"
+            >
+              <i className="fas fa-chevron-left" />
+            </button>
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-amber-500/20">
               <i className="fas fa-bus w-5 h-5 text-white text-[16px] flex items-center justify-center" />
             </div>
@@ -1012,13 +1097,6 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
               <i className={`fas fa-wifi w-3 h-3 text-[10px] ${mode === "online" ? "animate-pulse" : ""}`} />
               {mode === "online" ? "ONLINE" : "OFFLINE"}
             </span>
-            <button
-              onClick={handleClose}
-              aria-label="Close"
-              className="w-8 h-8 rounded-full bg-white/[0.06] border border-[#1f2538] text-slate-300 hover:bg-white/[0.12] hover:text-white transition-colors flex items-center justify-center text-[12px]"
-            >
-              <i className="fas fa-xmark" />
-            </button>
           </div>
         </div>
       </header>
@@ -1111,7 +1189,9 @@ export function LiveTrackingModal({ open, onClose }: LiveTrackingModalProps) {
           )
         )}
 
-        {tab === "driver" && <DriverModePanel />}
+        {tab === "driver" && (
+          <DriverModePanel driverPositions={driverPositions} tick={tick} />
+        )}
 
         {/* Footer */}
         <div className="text-center pt-6 pb-2 border-t border-[#1f2538]/50 mt-6">
