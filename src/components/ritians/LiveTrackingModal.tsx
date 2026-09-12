@@ -138,9 +138,11 @@ function useVehicleIdMap() {
 function DriverModePanel({
   driverPositions,
   tick,
+  isMobile = false,
 }: {
   driverPositions: Record<string, { coords: Coord; speed: number; heading: number | null; timestamp: number }>;
   tick: number;
+  isMobile?: boolean;
 }) {
   const { show } = useToast();
   const routeToVehicleId = useVehicleIdMap();
@@ -620,7 +622,7 @@ function DriverModePanel({
                 )}
               </div>
             </div>
-            <div style={{ height: 380 }} className="rounded-xl overflow-hidden relative">
+            <div style={{ height: isMobile ? 300 : 380 }} className="rounded-xl overflow-hidden relative">
               <FleetMap
                 vehicles={mapVehicles}
                 selectedVehicleId={selectedRoute}
@@ -652,12 +654,14 @@ function RouteDetailView({
   driverPositions,
   onBack,
   tick,
+  isMobile = false,
 }: {
   routeNo: string;
   buses: BusPosition[];
   driverPositions: Record<string, { coords: Coord; speed: number; heading: number | null; timestamp: number }>;
   onBack: () => void;
   tick: number;
+  isMobile?: boolean;
 }) {
   const [followToggle, setFollowToggle] = useState(true);
   const selRoute = ALL_ROUTES.find((r) => r.routeNo === routeNo);
@@ -797,7 +801,7 @@ function RouteDetailView({
             </span>
           </div>
         </div>
-        <div style={{ height: 440 }} className="rounded-xl overflow-hidden relative">
+        <div style={{ height: isMobile ? 320 : 440 }} className="rounded-xl overflow-hidden relative">
           <FleetMap
             vehicles={mapVehicles}
             selectedVehicleId={routeNo}
@@ -924,10 +928,12 @@ function FindMyBusTab({
   buses,
   driverPositions,
   onSelectRoute,
+  isMobile = false,
 }: {
   buses: BusPosition[];
   driverPositions: Record<string, { coords: Coord; speed: number; heading: number | null; timestamp: number }>;
   onSelectRoute: (routeNo: string) => void;
+  isMobile?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const filtered = useMemo(() => {
@@ -1048,10 +1054,23 @@ export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
   const [mode, setMode] = useState<"online" | "offline">("online");
   const [tab, setTab] = useState<"passenger" | "driver">("passenger");
   const [selectedRoute, setSelectedRoute] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"desktop" | "mobile">("desktop");
   const [buses, setBuses] = useState<BusPosition[]>(() => initialBuses());
   const [tick, setTick] = useState(0);
   const [driverPositions, setDriverPositions] = useState<Record<string, { coords: Coord; speed: number; heading: number | null; timestamp: number }>>({});
   const tickRef = useRef(0);
+
+  // Apply / remove the rt-force-mobile class on <body> so all the existing
+  // mobile CSS rules apply when the user switches to mobile view.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    if (viewMode === "mobile") {
+      document.body.classList.add("rt-force-mobile");
+    } else {
+      document.body.classList.remove("rt-force-mobile");
+    }
+    return () => { document.body.classList.remove("rt-force-mobile"); };
+  }, [viewMode]);
 
   // Fetch real driver positions from the API every 2 seconds
   useEffect(() => {
@@ -1142,36 +1161,55 @@ export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
     onBack();
   }, [onBack]);
 
+  const isMobile = viewMode === "mobile";
+
   return (
-    <div className="min-h-screen flex flex-col bg-[#0a0d18] text-slate-100">
+    <div className={`min-h-screen flex flex-col bg-[#0a0d18] text-slate-100 ${isMobile ? "rt-wimb-mobile" : ""}`}>
       {/* Header */}
       <header className="sticky top-0 z-40 bg-[#0a0d18]/95 backdrop-blur border-b border-[#1f2538] flex-shrink-0">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
+        <div className={`mx-auto flex items-center justify-between gap-2 ${isMobile ? "px-3 py-2.5" : "max-w-5xl px-4 py-3"}`}>
+          <div className="flex items-center gap-2 min-w-0">
             <button
               onClick={handleBack}
               aria-label="Back"
-              className="w-9 h-9 rounded-lg bg-white/[0.06] border border-[#1f2538] text-slate-300 hover:bg-white/[0.12] hover:text-white transition-colors flex items-center justify-center text-[12px] flex-shrink-0"
+              className={`rounded-lg bg-white/[0.06] border border-[#1f2538] text-slate-300 hover:bg-white/[0.12] hover:text-white transition-colors flex items-center justify-center flex-shrink-0 ${isMobile ? "w-8 h-8 text-[11px]" : "w-9 h-9 text-[12px]"}`}
             >
               <i className="fas fa-chevron-left" />
             </button>
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-amber-500/20">
-              <i className="fas fa-bus w-5 h-5 text-white text-[16px] flex items-center justify-center" />
+            <div className={`rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-amber-500/20 ${isMobile ? "w-8 h-8" : "w-10 h-10"}`}>
+              <i className={`fas fa-bus text-white flex items-center justify-center ${isMobile ? "text-[13px]" : "text-[16px]"}`} />
             </div>
             <div className="min-w-0">
-              <h1 className="text-base font-bold tracking-tight text-slate-100 leading-none">Where is my Bus</h1>
-              <p className="text-[10px] uppercase tracking-widest text-slate-500 mt-0.5 leading-none">
+              <h1 className={`font-bold tracking-tight text-slate-100 leading-none ${isMobile ? "text-[13px]" : "text-base"}`}>Where is my Bus</h1>
+              <p className={`uppercase tracking-widest text-slate-500 leading-none ${isMobile ? "text-[8px] mt-0.5" : "text-[10px] mt-0.5"}`}>
                 Live Tracking • Chennai Routes
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <span className={`inline-flex items-center justify-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-semibold tracking-wide ${
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            {/* View toggle button — switches between desktop and mobile layouts */}
+            <button
+              onClick={() => setViewMode((v) => (v === "desktop" ? "mobile" : "desktop"))}
+              aria-label={`Switch to ${isMobile ? "desktop" : "mobile"} view`}
+              title={`Switch to ${isMobile ? "desktop" : "mobile"} view`}
+              className={`inline-flex items-center justify-center gap-1.5 rounded-full border transition-colors flex-shrink-0 ${
+                isMobile
+                  ? "px-2 py-1 border-cyan-500/40 bg-cyan-500/10 text-cyan-300 text-[9px]"
+                  : "px-2.5 py-1 border-slate-600 bg-slate-700/30 text-slate-400 text-[11px] hover:text-slate-200 hover:border-slate-500"
+              }`}
+            >
+              <i className={`fas ${isMobile ? "fa-mobile-screen" : "fa-desktop"} text-[10px]`} />
+              <span className="font-semibold tracking-wide">{isMobile ? "Mobile" : "Desktop"}</span>
+              <i className="fas fa-repeat text-[8px] opacity-60 ml-0.5" />
+            </button>
+            <span className={`inline-flex items-center justify-center gap-1.5 rounded-full border font-semibold tracking-wide ${
+              isMobile ? "px-2 py-0.5 text-[9px]" : "px-2.5 py-1 text-[11px]"
+            } ${
               mode === "online"
                 ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
                 : "border-slate-600 bg-slate-700/30 text-slate-400"
             }`}>
-              <i className={`fas fa-wifi w-3 h-3 text-[10px] ${mode === "online" ? "animate-pulse" : ""}`} />
+              <i className={`fas fa-wifi text-[10px] ${mode === "online" ? "animate-pulse" : ""}`} />
               {mode === "online" ? "ONLINE" : "OFFLINE"}
             </span>
           </div>
@@ -1179,23 +1217,23 @@ export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
       </header>
 
       {/* Main */}
-      <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-4 pb-24 overflow-y-auto">
+      <main className={`flex-1 w-full mx-auto overflow-y-auto ${isMobile ? "px-3 py-3 pb-32" : "max-w-5xl px-4 py-4 pb-24"}`}>
         {/* Online/Offline mode card */}
-        <div className="rounded-2xl border border-[#1f2538] bg-[#10131f] p-4 mb-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
+        <div className={`rounded-2xl border border-[#1f2538] bg-[#10131f] mb-4 ${isMobile ? "p-3" : "p-4"}`}>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className={`rounded-lg flex items-center justify-center flex-shrink-0 ${
                 mode === "online"
                   ? "bg-emerald-500/15 text-emerald-400"
                   : "bg-slate-500/15 text-slate-400"
-              }`}>
-                <i className="fas fa-wifi w-5 h-5 text-[16px] flex items-center justify-center" />
+              } ${isMobile ? "w-8 h-8" : "w-10 h-10"}`}>
+                <i className={`fas fa-wifi flex items-center justify-center ${isMobile ? "text-[13px]" : "text-[16px]"}`} />
               </div>
               <div className="min-w-0">
-                <div className="text-sm font-semibold text-slate-100">
+                <div className={`font-semibold text-slate-100 ${isMobile ? "text-[12px]" : "text-sm"}`}>
                   {mode === "online" ? "Online Mode — Live Tracking" : "Offline Mode — Static Schedule"}
                 </div>
-                <div className="text-[11px] text-slate-500 mt-0.5">
+                <div className={`text-slate-500 mt-0.5 ${isMobile ? "text-[10px]" : "text-[11px]"}`}>
                   {mode === "online"
                     ? "Uses real GPS + WebSocket. Driver pushes live location every 2s."
                     : "Uses scheduled times only. Enable online for real-time updates."}
@@ -1208,13 +1246,13 @@ export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
               aria-checked={mode === "online"}
               onClick={() => setMode((m) => (m === "online" ? "offline" : "online"))}
               aria-label="Toggle online/offline mode"
-              className={`relative inline-flex h-[18px] w-8 shrink-0 items-center rounded-full border border-transparent shadow-xs transition-colors outline-none ${
+              className={`relative inline-flex ${isMobile ? "h-4 w-7" : "h-[18px] w-8"} shrink-0 items-center rounded-full border border-transparent shadow-xs transition-colors outline-none ${
                 mode === "online" ? "bg-emerald-500" : "bg-slate-700"
               }`}
             >
               <span
-                className={`pointer-events-none block w-4 h-4 rounded-full bg-white ring-0 transition-transform ${
-                  mode === "online" ? "translate-x-[14px]" : "translate-x-0.5"
+                className={`pointer-events-none block ${isMobile ? "w-3 h-3" : "w-4 h-4"} rounded-full bg-white ring-0 transition-transform ${
+                  mode === "online" ? (isMobile ? "translate-x-[12px]" : "translate-x-[14px]") : (isMobile ? "translate-x-0.5" : "translate-x-0.5")
                 }`}
               />
             </button>
@@ -1222,10 +1260,12 @@ export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
         </div>
 
         {/* Tabs */}
-        <div className="grid grid-cols-2 gap-1 bg-[#10131f] border border-[#1f2538] rounded-xl h-12 p-1 mb-4">
+        <div className={`grid grid-cols-2 gap-1 bg-[#10131f] border border-[#1f2538] rounded-xl ${isMobile ? "h-10" : "h-12"} p-1 mb-4`}>
           <button
             onClick={() => { setTab("passenger"); setSelectedRoute(null); }}
-            className={`inline-flex h-[calc(100%-2px)] flex-1 items-center justify-center gap-1.5 text-sm font-medium rounded-lg transition-all ${
+            className={`inline-flex h-[calc(100%-2px)] flex-1 items-center justify-center gap-1.5 font-medium rounded-lg transition-all ${
+              isMobile ? "text-[12px]" : "text-sm"
+            } ${
               tab === "passenger"
                 ? "bg-emerald-500/15 text-emerald-300"
                 : "text-slate-400 hover:text-slate-200"
@@ -1236,7 +1276,9 @@ export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
           </button>
           <button
             onClick={() => setTab("driver")}
-            className={`inline-flex h-[calc(100%-2px)] flex-1 items-center justify-center gap-1.5 text-sm font-medium rounded-lg transition-all ${
+            className={`inline-flex h-[calc(100%-2px)] flex-1 items-center justify-center gap-1.5 font-medium rounded-lg transition-all ${
+              isMobile ? "text-[12px]" : "text-sm"
+            } ${
               tab === "driver"
                 ? "bg-amber-500/15 text-amber-300"
                 : "text-slate-400 hover:text-slate-200"
@@ -1256,23 +1298,25 @@ export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
               driverPositions={driverPositions}
               onBack={() => setSelectedRoute(null)}
               tick={tick}
+              isMobile={isMobile}
             />
           ) : (
             <FindMyBusTab
               buses={buses}
               driverPositions={driverPositions}
               onSelectRoute={setSelectedRoute}
+              isMobile={isMobile}
             />
           )
         )}
 
         {tab === "driver" && (
-          <DriverModePanel driverPositions={driverPositions} tick={tick} />
+          <DriverModePanel driverPositions={driverPositions} tick={tick} isMobile={isMobile} />
         )}
 
         {/* Footer */}
         <div className="text-center pt-6 pb-2 border-t border-[#1f2538]/50 mt-6">
-          <div className="text-[10px] text-slate-500">Where is my Bus · 52 Chennai routes · All buses go to RIT Campus</div>
+          <div className={`text-slate-500 ${isMobile ? "text-[9px]" : "text-[10px]"}`}>Where is my Bus · 52 Chennai routes · All buses go to RIT Campus</div>
         </div>
       </main>
     </div>
