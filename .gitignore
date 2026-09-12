@@ -52,11 +52,3 @@ prompt
 server.log
 # Skills directory
 /skills/
-
-# Large media / binaries — keep locally but don't push to GitHub
-/upload/
-*.mp4
-*.zip
-/db/*.db
-/download/
-/tool-results/
