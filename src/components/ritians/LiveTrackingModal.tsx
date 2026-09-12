@@ -177,13 +177,56 @@ function DriverModePanel({
     }).catch(() => {});
   };
 
+  // Track previous position so we can compute heading + speed from delta
+  // when the device doesn't report them (common on desktop browsers).
+  const lastPosRef = useRef<{ lat: number; lng: number; t: number } | null>(null);
+
   const handlePosition = (pos: GeolocationPosition) => {
+    let speed: number;
+    let heading: number | null = pos.coords.heading;
+
+    const prev = lastPosRef.current;
+    if (prev) {
+      const dt = (pos.timestamp - prev.t) / 1000; // seconds
+      // Haversine distance between prev and current
+      const R = 6371000;
+      const toRad = (d: number) => (d * Math.PI) / 180;
+      const dLat = toRad(pos.coords.latitude - prev.lat);
+      const dLng = toRad(pos.coords.longitude - prev.lng);
+      const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(prev.lat)) * Math.cos(toRad(pos.coords.latitude)) * Math.sin(dLng / 2) ** 2;
+      const dist = 2 * R * Math.asin(Math.sqrt(h));
+
+      if (dt > 0 && dist > 1) {
+        // Computed speed in km/h — only use if device didn't report speed
+        if (pos.coords.speed == null) {
+          speed = Math.min(120, (dist / dt) * 3.6);
+        } else {
+          speed = Math.max(0, pos.coords.speed * 3.6);
+        }
+        // Computed heading from prev → current — only if device didn't report
+        if (heading == null || Number.isNaN(heading)) {
+          const hRad = Math.atan2(pos.coords.longitude - prev.lng, pos.coords.latitude - prev.lat);
+          heading = hRad * 180 / Math.PI;
+          if (heading < 0) heading += 360;
+        }
+      } else {
+        // Bus is stationary or barely moving
+        speed = pos.coords.speed != null ? Math.max(0, pos.coords.speed * 3.6) : 0;
+        if (heading == null || Number.isNaN(heading)) heading = null;
+      }
+    } else {
+      speed = pos.coords.speed != null ? Math.max(0, pos.coords.speed * 3.6) : 0;
+      if (heading == null || Number.isNaN(heading)) heading = null;
+    }
+
+    lastPosRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude, t: pos.timestamp };
+
     const data: DriverGPSData = {
       latitude: pos.coords.latitude,
       longitude: pos.coords.longitude,
       accuracy: pos.coords.accuracy,
-      speed: pos.coords.speed != null ? Math.max(0, pos.coords.speed * 3.6) : 0,
-      heading: pos.coords.heading,
+      speed,
+      heading,
       altitude: pos.coords.altitude,
       timestamp: pos.timestamp,
     };
@@ -220,7 +263,7 @@ function DriverModePanel({
     const initialData: DriverGPSData = {
       latitude: startPos.lat,
       longitude: startPos.lng,
-      accuracy: 8,
+      accuracy: 3, // High accuracy simulated GPS — ±3m (was 8)
       speed: 0,
       heading: null,
       altitude: 30,
@@ -230,10 +273,12 @@ function DriverModePanel({
     postLocation(initialData, true);
 
     setTimeout(() => {
+      // Update every 1 second (was 2s) — smoother movement, more "real-time" feel
       simIntervalRef.current = setInterval(() => {
         const segIdx = segIdxRef.current;
-        // 0.15 per 2s = ~13 seconds per segment, so the bus visibly moves across the route
-        const prog = progRef.current + 0.15;
+        // 0.08 per 1s = ~12.5 seconds per segment, so the bus visibly moves
+        // across the route without looking jittery
+        const prog = progRef.current + 0.08;
         if (prog >= 1) {
           progRef.current = 0;
           segIdxRef.current = Math.min(segIdx + 1, coordsList.length - 2);
@@ -244,13 +289,15 @@ function DriverModePanel({
         const b = coordsList[Math.min(segIdxRef.current + 1, coordsList.length - 1)];
         const lat = a.lat + (b.lat - a.lat) * progRef.current;
         const lng = a.lng + (b.lng - a.lng) * progRef.current;
-        const speed = 20 + Math.sin(Date.now() / 20000) * 10;
+        // Realistic bus speed: 18-32 km/h with gentle variation
+        const speed = 25 + Math.sin(Date.now() / 15000) * 7;
         const heading = Math.atan2(b.lng - lng, b.lat - lat) * 180 / Math.PI;
 
         const data: DriverGPSData = {
           latitude: lat,
           longitude: lng,
-          accuracy: 8 + Math.random() * 4,
+          // Higher accuracy: ±3-5m (was ±8-12m) — looks like real high-accuracy GPS
+          accuracy: 3 + Math.random() * 2,
           speed: Math.max(0, speed),
           heading: heading < 0 ? heading + 360 : heading,
           altitude: 30 + Math.random() * 10,
@@ -258,8 +305,8 @@ function DriverModePanel({
         };
         setGps(data);
         postLocation(data, true);
-      }, 2000);
-    }, 4000);
+      }, 1000);
+    }, 3000); // 3 second delay before bus starts moving (was 4s)
   };
 
   const startSharing = () => {
@@ -277,10 +324,14 @@ function DriverModePanel({
     }).catch(() => {});
 
     if (navigator.geolocation) {
+      // Always enable high accuracy (GPS satellite) regardless of source —
+      // network source just means we tolerate lower accuracy, but we still
+      // request the best possible fix. maximumAge: 0 means always get fresh
+      // position; timeout: 5000 means fail fast if GPS is slow.
       watchIdRef.current = navigator.geolocation.watchPosition(handlePosition, handleError, {
-        enableHighAccuracy: positionSource === "gps",
+        enableHighAccuracy: true,
         maximumAge: 0,
-        timeout: 8000,
+        timeout: 5000,
       });
     } else {
       setError("Geolocation not supported. Using simulated GPS data.");
@@ -299,6 +350,8 @@ function DriverModePanel({
       clearInterval(simIntervalRef.current);
       simIntervalRef.current = null;
     }
+    // Clear the last position so the next session computes speed/heading fresh
+    lastPosRef.current = null;
     setSharing(false);
     setTripStartTime(null);
     setGps(null);
@@ -507,23 +560,30 @@ function DriverModePanel({
         </div>
       )}
 
-      {/* Live map preview — shows the bus moving in real time as the driver shares location */}
-      {sharing && selectedRoute && (() => {
+      {/* Always-visible live map — when sharing, shows the bus moving in real
+          time. When not sharing, shows a preview of the selected route so the
+          driver can see where they'll be driving. */}
+      {selectedRoute && (() => {
         const r = ALL_ROUTES.find((x) => x.routeNo === selectedRoute);
         if (!r) return null;
         // Use the live driver position from the parent (polled from /api/vehicles).
         // This is the SAME position the passenger-side map will see — so the driver
         // can verify their bus icon is actually moving on the map.
         const livePos = driverPositions[selectedRoute];
-        const currentCoords: Coord = livePos?.coords || (gps ? { lat: gps.latitude, lng: gps.longitude } : r.coords);
+        // When sharing with real GPS, prefer the local gps state (freshest).
+        // When sharing with simulated GPS, the gps state is also populated.
+        // When not sharing, fall back to the route's starting coords.
+        const currentCoords: Coord = livePos?.coords
+          || (gps ? { lat: gps.latitude, lng: gps.longitude } : r.coords);
         const currentSpeed = livePos?.speed ?? (gps ? (gps.speed ?? 0) : 0);
         const currentHeading = livePos?.heading ?? (gps ? gps.heading : undefined);
+        const isLive = sharing && !!livePos;
 
         const mapVehicles: MapVehicle[] = [{
           id: selectedRoute,
           vehicleNumber: `BUS-${String(r.no).padStart(3, "0")}`,
           vehicleName: r.routeName,
-          status: "tracking" as const,
+          status: (sharing ? "tracking" : "idle") as "tracking" | "idle",
           coords: currentCoords,
           speed: currentSpeed,
           heading: currentHeading ?? undefined,
@@ -536,32 +596,45 @@ function DriverModePanel({
           <div className="rounded-2xl border border-[#1f2538] bg-[#10131f] p-3">
             <div className="flex items-center justify-between mb-2">
               <div className="text-[10px] uppercase tracking-widest text-cyan-400 font-bold flex items-center gap-1.5">
-                <i className="fas fa-map" /> Live Bus Position
+                <i className="fas fa-map" /> {sharing ? "Live Bus Position" : "Route Preview"}
               </div>
               <div className="flex items-center gap-1.5">
-                <span className="text-[10px] text-emerald-400 flex items-center gap-1">
-                  <span
-                    className="w-1.5 h-1.5 rounded-full bg-emerald-500"
-                    style={{ boxShadow: "0 0 6px #10b981" }}
-                  />
-                  LIVE · {tick * 2}s
-                </span>
+                {isLive ? (
+                  <span className="text-[10px] text-emerald-400 flex items-center gap-1">
+                    <span
+                      className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"
+                      style={{ boxShadow: "0 0 6px #10b981" }}
+                    />
+                    LIVE · {tick}s ago
+                  </span>
+                ) : sharing ? (
+                  <span className="text-[10px] text-amber-400 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                    STARTING…
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+                    PREVIEW
+                  </span>
+                )}
               </div>
             </div>
-            <div style={{ height: 280 }} className="rounded-xl overflow-hidden relative">
+            <div style={{ height: 380 }} className="rounded-xl overflow-hidden relative">
               <FleetMap
                 vehicles={mapVehicles}
                 selectedVehicleId={selectedRoute}
                 onSelectVehicle={() => {}}
                 showRouteForVehicleId={selectedRoute}
                 height="100%"
-                centerOnSelected={true}
+                centerOnSelected={sharing}
               />
             </div>
             <div className="mt-2 text-[10px] text-slate-500 flex items-center gap-3 flex-wrap">
-              <span><i className="fas fa-location-dot text-cyan-400 mr-1" />{currentCoords.lat.toFixed(4)}, {currentCoords.lng.toFixed(4)}</span>
-              <span><i className="fas fa-gauge-high text-amber-400 mr-1" />{Math.round(currentSpeed)} km/h</span>
-              {currentHeading != null && <span><i className="fas fa-compass text-slate-400 mr-1" />{Math.round(currentHeading)}°</span>}
+              <span><i className="fas fa-location-dot text-cyan-400 mr-1" />{currentCoords.lat.toFixed(5)}, {currentCoords.lng.toFixed(5)}</span>
+              {sharing && <span><i className="fas fa-gauge-high text-amber-400 mr-1" />{Math.round(currentSpeed)} km/h</span>}
+              {sharing && currentHeading != null && <span><i className="fas fa-compass text-slate-400 mr-1" />{Math.round(currentHeading)}°</span>}
+              {gps && <span><i className="fas fa-bullseye text-emerald-400 mr-1" />±{Math.round(gps.accuracy)} m</span>}
             </div>
           </div>
         );
@@ -720,11 +793,11 @@ function RouteDetailView({
             </button>
             <span className="text-[10px] text-emerald-400 flex items-center gap-1 ml-1">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" style={{ boxShadow: "0 0 6px #10b981" }} />
-              LIVE · {tick * 2}s
+              LIVE · {tick}s
             </span>
           </div>
         </div>
-        <div style={{ height: 320 }} className="rounded-xl overflow-hidden relative">
+        <div style={{ height: 440 }} className="rounded-xl overflow-hidden relative">
           <FleetMap
             vehicles={mapVehicles}
             selectedVehicleId={routeNo}
@@ -1005,11 +1078,13 @@ export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
       } catch (_) {}
     };
     fetchDriverPositions();
-    const fetchId = setInterval(fetchDriverPositions, 2000);
+    // Poll every 1 second (was 2s) to match the driver-side push rate so
+    // passengers see the bus move smoothly without lag.
+    const fetchId = setInterval(fetchDriverPositions, 1000);
     return () => clearInterval(fetchId);
   }, []);
 
-  // Update bus positions every 2 seconds:
+  // Update bus positions every 1 second (was 2s):
   // - If a real driver is sharing GPS (driverPositions[routeNo] exists), the bus
   //   snaps to that exact GPS coordinate — the bus icon will MOVE as the driver moves.
   // - Otherwise, simulate movement along the route so the demo still looks alive.
@@ -1040,7 +1115,9 @@ export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
           coordsList[coordsList.length - 1] = RIT_CAMPUS_COORDS;
 
           let newSeg = b.segIdx;
-          let newProg = b.progress + 0.08;
+          // 0.04 per 1s = ~25 seconds per segment — smoother simulated movement
+          // for buses without a real driver. Was 0.08 per 2s.
+          let newProg = b.progress + 0.04;
           if (newProg >= 1) { newProg = 0; newSeg += 1; if (newSeg >= coordsList.length - 1) newSeg = 0; }
           const a = coordsList[newSeg];
           const c = coordsList[Math.min(newSeg + 1, coordsList.length - 1)];
@@ -1051,7 +1128,7 @@ export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
       );
       tickRef.current += 1;
       setTick(tickRef.current);
-    }, 2000);
+    }, 1000);
     return () => clearInterval(id);
   }, [driverPositions]);
 
