@@ -179,15 +179,25 @@ function DriverModePanel({
     }).catch(() => {});
   };
 
-  // Track previous position so we can compute heading + speed from delta
-  // when the device doesn't report them (common on desktop browsers).
+  // Track previous positions so we can compute heading + speed from delta.
+  // We keep the last 3 fixes so we can smooth the speed value (rolling average)
+  // — this prevents the displayed value from jumping erratically between fixes.
   const lastPosRef = useRef<{ lat: number; lng: number; t: number } | null>(null);
+  const recentSpeedsRef = useRef<number[]>([]);
+  const lastUpdateTsRef = useRef<number>(0);
 
   const handlePosition = (pos: GeolocationPosition) => {
+    // Throttle: ignore fixes that arrive less than 500ms after the previous one
+    // (devices sometimes fire multiple fixes in rapid succession with stale data)
+    if (pos.timestamp - lastUpdateTsRef.current < 500 && lastUpdateTsRef.current > 0) {
+      return;
+    }
+    lastUpdateTsRef.current = pos.timestamp;
+
+    const prev = lastPosRef.current;
     let speed: number;
     let heading: number | null = pos.coords.heading;
 
-    const prev = lastPosRef.current;
     if (prev) {
       const dt = (pos.timestamp - prev.t) / 1000; // seconds
       // Haversine distance between prev and current
@@ -198,28 +208,61 @@ function DriverModePanel({
       const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(prev.lat)) * Math.cos(toRad(pos.coords.latitude)) * Math.sin(dLng / 2) ** 2;
       const dist = 2 * R * Math.asin(Math.sqrt(h));
 
-      if (dt > 0 && dist > 1) {
-        // Computed speed in km/h — only use if device didn't report speed
-        if (pos.coords.speed == null) {
-          speed = Math.min(120, (dist / dt) * 3.6);
-        } else {
-          speed = Math.max(0, pos.coords.speed * 3.6);
-        }
-        // Computed heading from prev → current — only if device didn't report
-        if (heading == null || Number.isNaN(heading)) {
-          const hRad = Math.atan2(pos.coords.longitude - prev.lng, pos.coords.latitude - prev.lat);
-          heading = hRad * 180 / Math.PI;
-          if (heading < 0) heading += 360;
-        }
+      // Always compute speed from the position delta — this is MORE accurate
+      // than pos.coords.speed, which is often null on desktops/laptops and
+      // can be inaccurate on mobile. We cross-check with pos.coords.speed
+      // (when reported) and prefer the higher of the two when both indicate
+      // movement (this filters out false "stationary" readings).
+      let computedSpeed = 0;
+      if (dt > 0) {
+        // m/s → km/h, clamp to a realistic 0-80 km/h bus range
+        computedSpeed = Math.min(80, Math.max(0, (dist / dt) * 3.6));
+      }
+      const deviceSpeed = pos.coords.speed != null && !Number.isNaN(pos.coords.speed)
+        ? Math.max(0, pos.coords.speed * 3.6)
+        : 0;
+
+      if (dist < 2.5) {
+        // GPS jitter — bus is effectively stationary. Don't let small position
+        // wobble (±2.5m) register as speed.
+        speed = 0;
+      } else if (deviceSpeed > 1 && computedSpeed > 0.5) {
+        // Both readings indicate movement — trust the higher one (devices
+        // often under-report speed due to smoothing on their end)
+        speed = Math.max(deviceSpeed, computedSpeed);
+      } else if (computedSpeed > 0.5) {
+        // Device didn't report speed but we have delta-based movement
+        speed = computedSpeed;
+      } else if (deviceSpeed > 1) {
+        // Only device reported movement (delta too small to compute reliably)
+        speed = deviceSpeed;
       } else {
-        // Bus is stationary or barely moving
-        speed = pos.coords.speed != null ? Math.max(0, pos.coords.speed * 3.6) : 0;
-        if (heading == null || Number.isNaN(heading)) heading = null;
+        speed = 0;
+      }
+
+      // Computed heading from prev → current (only if bus has moved enough
+      // to make the heading meaningful — otherwise keep previous heading)
+      if ((heading == null || Number.isNaN(heading)) && dist > 5) {
+        const hRad = Math.atan2(pos.coords.longitude - prev.lng, pos.coords.latitude - prev.lat);
+        heading = hRad * 180 / Math.PI;
+        if (heading < 0) heading += 360;
+      } else if (heading == null || Number.isNaN(heading)) {
+        heading = null;
       }
     } else {
-      speed = pos.coords.speed != null ? Math.max(0, pos.coords.speed * 3.6) : 0;
+      // First fix — no previous position, fall back to device speed
+      speed = pos.coords.speed != null && !Number.isNaN(pos.coords.speed)
+        ? Math.max(0, pos.coords.speed * 3.6)
+        : 0;
       if (heading == null || Number.isNaN(heading)) heading = null;
     }
+
+    // Smooth the speed value with a rolling average of the last 3 fixes.
+    // This prevents the displayed number from jumping 18 → 35 → 22 between
+    // consecutive fixes (which looks unrealistic and confusing).
+    const smoothedSpeeds = [...recentSpeedsRef.current, speed].slice(-3);
+    recentSpeedsRef.current = smoothedSpeeds;
+    const smoothedSpeed = smoothedSpeeds.reduce((a, b) => a + b, 0) / smoothedSpeeds.length;
 
     lastPosRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude, t: pos.timestamp };
 
@@ -227,7 +270,7 @@ function DriverModePanel({
       latitude: pos.coords.latitude,
       longitude: pos.coords.longitude,
       accuracy: pos.coords.accuracy,
-      speed,
+      speed: smoothedSpeed,
       heading,
       altitude: pos.coords.altitude,
       timestamp: pos.timestamp,
@@ -275,24 +318,63 @@ function DriverModePanel({
     postLocation(initialData, true);
 
     setTimeout(() => {
+      // Track previous simulated position so we can compute the actual speed
+      // from the distance moved per tick (rather than just a sine wave).
+      // Initialize with the starting position so the first delta isn't huge.
+      let prevSimPos: { lat: number; lng: number; t: number } = { lat: startPos.lat, lng: startPos.lng, t: Date.now() };
+      let prevTickTime = Date.now();
+      // Target speed for the simulated bus (km/h). We compute the progress
+      // per tick dynamically based on the segment length so the bus always
+      // moves at ~25 km/h regardless of whether the segment is 1km or 10km.
+      const TARGET_SPEED_KMH = 25;
       // Update every 1 second (was 2s) — smoother movement, more "real-time" feel
       simIntervalRef.current = setInterval(() => {
         const segIdx = segIdxRef.current;
-        // 0.08 per 1s = ~12.5 seconds per segment, so the bus visibly moves
-        // across the route without looking jittery
-        const prog = progRef.current + 0.08;
+        const a = coordsList[segIdxRef.current];
+        const b = coordsList[Math.min(segIdxRef.current + 1, coordsList.length - 1)];
+
+        // Compute the segment length in meters
+        const R = 6371000;
+        const toRad = (d: number) => (d * Math.PI) / 180;
+        const segDLat = toRad(b.lat - a.lat);
+        const segDLng = toRad(b.lng - a.lng);
+        const segH = Math.sin(segDLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(segDLng / 2) ** 2;
+        const segLen = 2 * R * Math.asin(Math.sqrt(segH)); // meters
+
+        // Compute progress per tick so the bus moves at ~25 km/h:
+        // distance_per_tick = TARGET_SPEED_KMH * 1000 / 3600 * dt = ~6.94 m/s
+        // progress_per_tick = distance_per_tick / segLen
+        const now = Date.now();
+        const dt = Math.max(0.1, (now - prevTickTime) / 1000); // seconds, min 0.1s
+        prevTickTime = now;
+        const distancePerTick = (TARGET_SPEED_KMH * 1000 / 3600) * dt; // meters
+        const progressPerTick = segLen > 0 ? distancePerTick / segLen : 0.015;
+
+        // Add gentle variation in speed (±5 km/h) by adjusting progress ±20%
+        const variation = 1 + Math.sin(now / 12000) * 0.2;
+        const prog = progRef.current + progressPerTick * variation;
         if (prog >= 1) {
           progRef.current = 0;
           segIdxRef.current = Math.min(segIdx + 1, coordsList.length - 2);
         } else {
           progRef.current = prog;
         }
-        const a = coordsList[segIdxRef.current];
-        const b = coordsList[Math.min(segIdxRef.current + 1, coordsList.length - 1)];
         const lat = a.lat + (b.lat - a.lat) * progRef.current;
         const lng = a.lng + (b.lng - a.lng) * progRef.current;
-        // Realistic bus speed: 18-32 km/h with gentle variation
-        const speed = 25 + Math.sin(Date.now() / 15000) * 7;
+
+        // Compute actual speed from distance moved since the last tick.
+        // This guarantees the displayed speed matches the visible movement
+        // of the bus icon on the map.
+        const dLat = toRad(lat - prevSimPos.lat);
+        const dLng = toRad(lng - prevSimPos.lng);
+        const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(prevSimPos.lat)) * Math.cos(toRad(lat)) * Math.sin(dLng / 2) ** 2;
+        const dist = 2 * R * Math.asin(Math.sqrt(h));
+        // m/s → km/h
+        const baseSpeed = (dist / dt) * 3.6;
+        // Clamp to a realistic city bus speed range: 0-45 km/h
+        const speed = Math.max(0, Math.min(45, baseSpeed));
+        prevSimPos = { lat, lng, t: now };
+
         const heading = Math.atan2(b.lng - lng, b.lat - lat) * 180 / Math.PI;
 
         const data: DriverGPSData = {
@@ -300,10 +382,10 @@ function DriverModePanel({
           longitude: lng,
           // Higher accuracy: ±3-5m (was ±8-12m) — looks like real high-accuracy GPS
           accuracy: 3 + Math.random() * 2,
-          speed: Math.max(0, speed),
+          speed,
           heading: heading < 0 ? heading + 360 : heading,
           altitude: 30 + Math.random() * 10,
-          timestamp: Date.now(),
+          timestamp: now,
         };
         setGps(data);
         postLocation(data, true);
@@ -354,6 +436,8 @@ function DriverModePanel({
     }
     // Clear the last position so the next session computes speed/heading fresh
     lastPosRef.current = null;
+    recentSpeedsRef.current = [];
+    lastUpdateTsRef.current = 0;
     setSharing(false);
     setTripStartTime(null);
     setGps(null);
