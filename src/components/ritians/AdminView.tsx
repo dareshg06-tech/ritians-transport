@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Route, parseTime } from "@/lib/ritians/data";
 import { useToast } from "@/lib/ritians/toast";
 import { useAuth } from "@/lib/ritians/auth";
@@ -105,6 +105,12 @@ export function AdminView({
             </button>
           </div>
         </div>
+
+        {/* ═══ RECORDED STUDENT COUNT ═══
+            Shows how many students have been recorded by bus drivers at
+            their boarding points. Updated in real-time by polling the
+            attendance API. */}
+        <RecordedStudentCount />
 
         {/* Attendance Dashboard quick-access */}
         <div style={{ marginBottom: 16 }}>
@@ -269,6 +275,139 @@ export function AdminView({
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// RecordedStudentCount — shows how many students have been recorded by bus
+// drivers at their boarding points. Polls /api/attendance every 10 seconds.
+// ============================================================================
+interface AttendanceRec {
+  id: string;
+  studentName: string;
+  registerNo: string;
+  routeNo: string;
+  boardingPoint: string | null;
+  status: string;
+  markedAt: string;
+  markedBy: string;
+}
+
+function RecordedStudentCount() {
+  const [records, setRecords] = useState<AttendanceRec[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchRecords = async () => {
+      try {
+        const res = await fetch("/api/attendance");
+        const data = await res.json();
+        setRecords(data.records || []);
+      } catch (_) {}
+      setLoading(false);
+    };
+    fetchRecords();
+    const id = setInterval(fetchRecords, 10000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Group by route to show per-route counts
+  const byRoute = useMemo(() => {
+    const map: Record<string, AttendanceRec[]> = {};
+    for (const r of records) {
+      const key = r.routeNo || "Unknown";
+      if (!map[key]) map[key] = [];
+      map[key].push(r);
+    }
+    return Object.entries(map).sort((a, b) => b[1].length - a[1].length);
+  }, [records]);
+
+  const total = records.length;
+  const present = records.filter((r) => r.status === "present").length;
+  const today = records.filter((r) => {
+    const d = new Date(r.markedAt);
+    const n = new Date();
+    return d.getDate() === n.getDate() && d.getMonth() === n.getMonth() && d.getFullYear() === n.getFullYear();
+  }).length;
+
+  return (
+    <div className="rt-panel" style={{ marginBottom: 16 }}>
+      <div className="rt-panel-header">
+        <div className="rt-panel-icon" style={{ background: "rgba(16,185,129,0.15)", color: "#5EEAB0" }}>
+          <i className="fas fa-users" />
+        </div>
+        <div>
+          <h3 className="rt-panel-title" style={{ color: "#5EEAB0" }}>Recorded Students</h3>
+          <p className="rt-panel-sub">Students recorded by bus drivers at boarding points</p>
+        </div>
+      </div>
+      <div className="rt-panel-body">
+        {loading ? (
+          <div style={{ textAlign: "center", padding: "20px 0", color: "var(--text3)" }}>
+            <i className="fas fa-spinner fa-spin" style={{ fontSize: 20 }} />
+          </div>
+        ) : (
+          <>
+            {/* Summary stats */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 16 }}>
+              <div style={{ textAlign: "center", padding: "10px 0", borderRadius: 10, background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)" }}>
+                <div style={{ fontSize: 20, fontWeight: 800, color: "var(--text)" }}>{total}</div>
+                <div style={{ fontSize: 10, color: "var(--text3)", marginTop: 2 }}>Total Records</div>
+              </div>
+              <div style={{ textAlign: "center", padding: "10px 0", borderRadius: 10, background: "rgba(16,185,129,0.05)", border: "1px solid rgba(16,185,129,0.2)" }}>
+                <div style={{ fontSize: 20, fontWeight: 800, color: "#5EEAB0" }}>{today}</div>
+                <div style={{ fontSize: 10, color: "var(--text3)", marginTop: 2 }}>Recorded Today</div>
+              </div>
+              <div style={{ textAlign: "center", padding: "10px 0", borderRadius: 10, background: "rgba(94,234,176,0.05)", border: "1px solid rgba(94,234,176,0.2)" }}>
+                <div style={{ fontSize: 20, fontWeight: 800, color: "#5EEAB0" }}>{present}</div>
+                <div style={{ fontSize: 10, color: "var(--text3)", marginTop: 2 }}>Present</div>
+              </div>
+            </div>
+
+            {/* Per-route breakdown */}
+            {byRoute.length > 0 ? (
+              <div>
+                <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--text3)", fontWeight: 700, marginBottom: 8 }}>
+                  Students per route
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {byRoute.slice(0, 10).map(([routeNo, recs]) => (
+                    <div key={routeNo} style={{
+                      display: "flex", alignItems: "center", justifyContent: "space-between",
+                      padding: "6px 10px", borderRadius: 8,
+                      background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)",
+                    }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{
+                          fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 99,
+                          background: "rgba(245,158,11,0.15)", color: "#f59e0b", fontFamily: "var(--font-mono)",
+                        }}>
+                          {routeNo}
+                        </span>
+                        <span style={{ fontSize: 11, color: "var(--text3)" }}>
+                          {recs[0].boardingPoint || "—"}
+                        </span>
+                      </div>
+                      <span style={{
+                        fontSize: 13, fontWeight: 700, color: "#5EEAB0",
+                      }}>
+                        {recs.length} {recs.length === 1 ? "student" : "students"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div style={{ textAlign: "center", padding: "20px 0", color: "var(--text3)" }}>
+                <i className="fas fa-user-slash" style={{ fontSize: 24, display: "block", marginBottom: 8 }} />
+                <div style={{ fontSize: 12 }}>No students recorded yet</div>
+                <div style={{ fontSize: 10, marginTop: 4 }}>Drivers record students via the Driver GPS portal</div>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Route, parseTime, timeCat, isToday, routeStops } from "@/lib/ritians/data";
 import { useToast } from "@/lib/ritians/toast";
 import { useAuth } from "@/lib/ritians/auth";
@@ -351,6 +351,138 @@ function AboutReport({ onSubmit }: { onSubmit: (data: { type: string; message: s
           </form>
         </div>
       </div>
+
+      {/* ═══ NOTIFICATIONS COLUMN ═══
+          Shows admin-posted notifications/alerts relevant to students.
+          Polls /api/notifications every 15 seconds for real-time updates. */}
+      <StudentNotifications />
+    </div>
+  );
+}
+
+// ============================================================================
+// StudentNotifications — a column inside the Student dashboard showing
+// admin-posted alerts and notifications.
+// ============================================================================
+function StudentNotifications() {
+  const [notifications, setNotifications] = useState<Array<{
+    id: string;
+    title: string;
+    body: string;
+    routeNo: string | null;
+    createdAt: string;
+  }>>([]);
+  const [expanded, setExpanded] = useState(true);
+
+  useEffect(() => {
+    const fetchNotifications = async () => {
+      try {
+        const res = await fetch("/api/notifications");
+        const data = await res.json();
+        if (data.notifications) {
+          setNotifications(data.notifications.slice(0, 10)); // show latest 10
+        }
+      } catch (_) {}
+    };
+    fetchNotifications();
+    const id = setInterval(fetchNotifications, 15000);
+    return () => clearInterval(id);
+  }, []);
+
+  const timeAgo = (dateStr: string) => {
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const min = Math.floor(diff / 60000);
+    if (min < 1) return "just now";
+    if (min < 60) return `${min}m ago`;
+    const h = Math.floor(min / 60);
+    if (h < 24) return `${h}h ago`;
+    return `${Math.floor(h / 24)}d ago`;
+  };
+
+  return (
+    <div className="rt-panel" style={{ marginTop: 24 }}>
+      <div
+        className="rt-panel-header"
+        style={{ cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between" }}
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div className="rt-panel-icon" style={{ background: "rgba(251,191,36,0.15)", color: "#FBBF24" }}>
+            <i className="fas fa-bell" />
+          </div>
+          <div>
+            <h3 className="rt-panel-title" style={{ color: "#FBBF24" }}>Notifications</h3>
+            <p className="rt-panel-sub">Alerts &amp; messages from admin</p>
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {notifications.length > 0 && (
+            <span style={{
+              fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99,
+              background: "rgba(251,191,36,0.15)", color: "#FBBF24", border: "1px solid rgba(251,191,36,0.3)",
+            }}>
+              {notifications.length}
+            </span>
+          )}
+          <i className={`fas fa-chevron-${expanded ? "up" : "down"}`} style={{ fontSize: 11, color: "var(--text3)" }} />
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="rt-panel-body" style={{ maxHeight: 300, overflowY: "auto" }}>
+          {notifications.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "24px 0", color: "var(--text3)" }}>
+              <i className="fas fa-bell-slash" style={{ fontSize: 24, display: "block", marginBottom: 8 }} />
+              <div style={{ fontSize: 12 }}>No notifications yet</div>
+              <div style={{ fontSize: 10, marginTop: 4 }}>Admin alerts will appear here in real-time</div>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {notifications.map((n) => (
+                <div
+                  key={n.id}
+                  style={{
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    background: "rgba(255,255,255,0.03)",
+                    border: "1px solid var(--border)",
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 10,
+                  }}
+                >
+                  <div style={{
+                    width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    background: "rgba(251,191,36,0.1)", color: "#FBBF24",
+                  }}>
+                    <i className="fas fa-info-circle" style={{ fontSize: 14 }} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)" }}>
+                      {n.title}
+                      {n.routeNo && (
+                        <span style={{
+                          marginLeft: 6, fontSize: 9, fontWeight: 700, padding: "1px 6px",
+                          borderRadius: 99, background: "rgba(245,158,11,0.15)", color: "#f59e0b",
+                        }}>
+                          {n.routeNo}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>
+                      {n.body}
+                    </div>
+                    <div style={{ fontSize: 9, color: "var(--text3)", marginTop: 4, fontFamily: "var(--font-mono)" }}>
+                      {timeAgo(n.createdAt)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
