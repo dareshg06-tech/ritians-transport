@@ -534,6 +534,28 @@ export function DriverGpsPortal({ onBack }: DriverGpsProps) {
             />
           )}
 
+          {/* ═══ STUDENT VERIFICATION + FACE CAPTURE ═══
+              At the bottom of the Driver GPS portal, the driver can verify
+              a student by entering their register number. Student details are
+              fetched and displayed. The driver captures a face photo and saves
+              the attendance record. */}
+          <StudentVerification
+            routeNo={selectedRoute}
+            boardingPoint={(() => {
+              // Determine the current/nearest boarding point from GPS
+              if (!gps || !selectedRoute) return undefined;
+              const stops = getRouteStopsWithCoords(selectedRoute);
+              const busCoords = { lat: gps.latitude, lng: gps.longitude };
+              let best: { stop: string; dist: number } | null = null;
+              for (const s of stops) {
+                if (!s.coords) continue;
+                const d = haversineMeters(busCoords, s.coords);
+                if (!best || d < best.dist) best = { stop: s.stop, dist: d };
+              }
+              return best && best.dist < 500 ? best.stop : undefined;
+            })()}
+          />
+
           {/* Back button */}
           <button className="rt-btn rt-btn-ghost rt-btn-sm rt-btn-full" style={{ marginTop: 14 }} onClick={onBack}>
             <i className="fas fa-arrow-left" /> Back to Dashboard
@@ -958,6 +980,193 @@ function DriverCounterRow({
           }}
         >+</button>
       </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// StudentVerification — at the bottom of the Driver GPS portal.
+// ============================================================================
+function StudentVerification({
+  routeNo,
+  boardingPoint,
+}: {
+  routeNo: string;
+  boardingPoint?: string;
+}) {
+  const { show } = useToast();
+  const [regNo, setRegNo] = useState("");
+  const [student, setStudent] = useState<{
+    studentName: string;
+    registerNo: string;
+    routeNo: string;
+    boardingPoint: string | null;
+    status: string;
+    markedAt: string;
+  } | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  const searchStudent = async () => {
+    if (!regNo.trim()) { show("Enter a register number first", "error"); return; }
+    setSearching(true);
+    setStudent(null);
+    setCapturedPhoto(null);
+    try {
+      const res = await fetch(`/api/attendance?query=${encodeURIComponent(regNo.trim())}`);
+      const data = await res.json();
+      const records = data.records || [];
+      const match = records.find((r: { registerNo: string }) =>
+        r.registerNo.toLowerCase() === regNo.trim().toLowerCase()
+      );
+      if (match) {
+        setStudent(match);
+      } else {
+        setStudent({
+          studentName: "New Student",
+          registerNo: regNo.trim(),
+          routeNo: routeNo || "",
+          boardingPoint: boardingPoint || null,
+          status: "present",
+          markedAt: new Date().toISOString(),
+        });
+        show("No existing record — ready to register new student", "info");
+      }
+    } catch (_) { show("Failed to search student", "error"); }
+    setSearching(false);
+  };
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+      setCameraActive(true);
+    } catch (err) { show("Camera not available. Please check permissions.", "error"); }
+  };
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    setCameraActive(false);
+  };
+
+  const capturePhoto = () => {
+    if (!videoRef.current || !canvasRef.current) return;
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    canvas.width = video.videoWidth || 320;
+    canvas.height = video.videoHeight || 240;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    setCapturedPhoto(canvas.toDataURL("image/jpeg", 0.8));
+    stopCamera();
+  };
+
+  const saveRecord = async () => {
+    if (!student) return;
+    setSaving(true);
+    try {
+      if (capturedPhoto) {
+        await fetch("/api/face-register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            studentName: student.studentName,
+            registerNo: student.registerNo,
+            routeNo: routeNo,
+            imageData: capturedPhoto,
+          }),
+        });
+      }
+      await fetch("/api/attendance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          studentName: student.studentName,
+          registerNo: student.registerNo,
+          routeNo: routeNo,
+          boardingPoint: boardingPoint || student.boardingPoint,
+          status: "present",
+          markedBy: "driver",
+        }),
+      });
+      show(`Student ${student.studentName} verified and saved!`, "success");
+      setStudent(null);
+      setRegNo("");
+      setCapturedPhoto(null);
+    } catch (_) { show("Failed to save student record", "error"); }
+    setSaving(false);
+  };
+
+  return (
+    <div style={{ marginTop: 18, padding: 16, borderRadius: 12, background: "#13161c", border: "1px solid #1e2330" }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#a78bfa", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+        <i className="fas fa-user-check" /> Student Verification
+      </div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <input
+          type="text"
+          placeholder="Enter register number (e.g. 2022CS001)"
+          value={regNo}
+          onChange={(e) => setRegNo(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") searchStudent(); }}
+          style={{ flex: 1, padding: "10px 14px", background: "rgba(255,255,255,0.045)", border: "1px solid var(--border)", borderRadius: 8, color: "#fff", fontSize: 13, outline: "none" }}
+        />
+        <button onClick={searchStudent} disabled={searching} style={{ padding: "10px 16px", borderRadius: 8, background: "rgba(167,139,250,0.15)", border: "1px solid rgba(167,139,250,0.3)", color: "#a78bfa", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+          {searching ? <i className="fas fa-spinner fa-spin" /> : "Verify"}
+        </button>
+      </div>
+      {student && (
+        <div style={{ padding: 12, borderRadius: 10, background: "rgba(167,139,250,0.08)", border: "1px solid rgba(167,139,250,0.2)", marginBottom: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 12px", fontSize: 12 }}>
+            <div><div style={{ color: "#64748b", fontSize: 10 }}>Name</div><div style={{ color: "#e2e8f0", fontWeight: 600 }}>{student.studentName}</div></div>
+            <div><div style={{ color: "#64748b", fontSize: 10 }}>Register No</div><div style={{ color: "#a78bfa", fontWeight: 600, fontFamily: "monospace" }}>{student.registerNo}</div></div>
+            <div><div style={{ color: "#64748b", fontSize: 10 }}>Route</div><div style={{ color: "#f59e0b", fontWeight: 600 }}>{student.routeNo || routeNo}</div></div>
+            <div><div style={{ color: "#64748b", fontSize: 10 }}>Boarding Point</div><div style={{ color: "#06b6d4", fontWeight: 600 }}>{boardingPoint || student.boardingPoint || "—"}</div></div>
+          </div>
+        </div>
+      )}
+      {student && (
+        <div style={{ marginBottom: 12 }}>
+          {capturedPhoto ? (
+            <div style={{ textAlign: "center" }}>
+              <img src={capturedPhoto} alt="Captured" style={{ width: 160, height: 160, objectFit: "cover", borderRadius: 12, border: "2px solid #10b981", margin: "0 auto 8px", display: "block" }} />
+              <button onClick={() => { setCapturedPhoto(null); startCamera(); }} style={{ fontSize: 11, padding: "4px 12px", borderRadius: 6, background: "rgba(255,255,255,0.05)", border: "1px solid var(--border)", color: "#64748b", cursor: "pointer" }}>
+                <i className="fas fa-camera-rotate mr-1" /> Retake
+              </button>
+            </div>
+          ) : cameraActive ? (
+            <div style={{ textAlign: "center" }}>
+              <video ref={videoRef} autoPlay playsInline muted style={{ width: 200, height: 200, objectFit: "cover", borderRadius: 12, border: "2px solid #a78bfa", margin: "0 auto 8px", display: "block", transform: "scaleX(-1)" }} />
+              <button onClick={capturePhoto} style={{ fontSize: 12, padding: "8px 20px", borderRadius: 8, background: "linear-gradient(135deg, #a78bfa, #7c3aed)", border: "none", color: "#fff", fontWeight: 600, cursor: "pointer" }}>
+                <i className="fas fa-camera mr-1" /> Capture
+              </button>
+            </div>
+          ) : (
+            <button onClick={startCamera} style={{ width: "100%", padding: "12px 0", borderRadius: 10, background: "rgba(167,139,250,0.1)", border: "1px dashed rgba(167,139,250,0.4)", color: "#a78bfa", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+              <i className="fas fa-camera" /> Start Camera to Capture Face
+            </button>
+          )}
+          <canvas ref={canvasRef} style={{ display: "none" }} />
+        </div>
+      )}
+      {student && (
+        <button onClick={saveRecord} disabled={!capturedPhoto || saving} style={{ width: "100%", padding: "12px 0", borderRadius: 10, background: capturedPhoto ? "linear-gradient(135deg, #10b981, #059669)" : "rgba(100,116,139,0.1)", border: capturedPhoto ? "none" : "1px solid rgba(100,116,139,0.2)", color: capturedPhoto ? "#fff" : "#64748b", fontSize: 13, fontWeight: 700, cursor: capturedPhoto ? "pointer" : "not-allowed", opacity: capturedPhoto ? 1 : 0.5 }}>
+          {saving ? <><i className="fas fa-spinner fa-spin mr-1" /> Saving...</> : <><i className="fas fa-save mr-1" /> Save Student Record</>}
+        </button>
+      )}
     </div>
   );
 }
