@@ -426,8 +426,11 @@ export function deriveConfidence(
   if (locationAgeS >= config.gpsLostS) return "OFFLINE";
   if (locationAgeS >= config.staleLocationS) return "STALE";
   if (accuracyM == null) return "LOW";
-  if (provider === "GPS" && accuracyM < 15 && locationAgeS < 5) return "HIGH";
-  if (provider === "GPS" || (provider === "NETWORK" && accuracyM < 50)) return "MEDIUM";
+  // SIMULATED provider is treated like GPS — it's a high-quality position
+  // (±3-5m accuracy) used for development/testing.
+  const isHighQualityProvider = provider === "GPS" || provider === "SIMULATED";
+  if (isHighQualityProvider && accuracyM < 15 && locationAgeS < 5) return "HIGH";
+  if (isHighQualityProvider || (provider === "NETWORK" && accuracyM < 50)) return "MEDIUM";
   return "LOW";
 }
 
@@ -846,7 +849,7 @@ export function processTelemetry(
           prevSpeedKmh: prev?.speedKmh ?? 0,
           accelerationKmhPerS: 0,
           hasRecentFix: false,
-          providerIsGps: fix.provider === "GPS",
+          providerIsGps: fix.provider === "GPS" || fix.provider === "SIMULATED",
           locationAgeS,
           config: stateConfig,
         }),
@@ -905,12 +908,18 @@ export function processTelemetry(
 
   // 7. Location age + state
   const locationAgeS = (now - fix.timestamp) / 1000;
+  // SIMULATED provider is treated like GPS for state-derivation purposes —
+  // it's a high-quality position (±3-5m accuracy) and should produce the
+  // same MOVING/STOPPED/ACCELERATING/SLOWING states as real GPS.
+  // Without this, the simulator would always show "NETWORK_TRACKING" and
+  // never show STOPPED / NOT MOVING.
+  const providerIsGps = fix.provider === "GPS" || fix.provider === "SIMULATED";
   const state = deriveBusState({
     speedKmh: smoothedSpeedKmh,
     prevSpeedKmh: prev?.smoothedSpeedKmh ?? 0,
     accelerationKmhPerS,
     hasRecentFix: locationAgeS < stateConfig.staleLocationS,
-    providerIsGps: fix.provider === "GPS",
+    providerIsGps,
     locationAgeS,
     config: stateConfig,
   });

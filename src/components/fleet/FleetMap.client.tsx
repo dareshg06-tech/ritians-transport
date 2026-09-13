@@ -140,15 +140,48 @@ export function FleetMap({
     });
   }
 
-  // Build popup HTML for a bus marker — shows live state, speed, ETA, accuracy
+  // Build popup HTML for a bus marker — shows live state, speed, ETA, accuracy.
+  // Critical: when speed = 0, the popup explicitly shows "NOT MOVING" so the
+  // user is never confused about whether the bus is actually moving or not.
+  // The marker animation also stops (duration = 0) when speed = 0, so the
+  // popup text and the marker behavior always agree.
   function buildPopupHtml(v: MapVehicle, isLive: boolean): string {
+    // Derive the human-readable state from the actual speed value.
+    // This is the source of truth — not a separate "status" flag.
+    let statusLabel: string;
+    let statusColor: string;
+    let statusEmoji: string;
+    if (!isLive) {
+      statusLabel = "OFFLINE";
+      statusColor = "#64748b";
+      statusEmoji = "⚫";
+    } else if (v.speed === undefined || v.speed == null) {
+      statusLabel = "LIVE";
+      statusColor = "#10b981";
+      statusEmoji = "🚌";
+    } else if (v.speed < 1) {
+      // Speed essentially zero — bus is stopped
+      statusLabel = "NOT MOVING";
+      statusColor = "#fbbf24";
+      statusEmoji = "🛑";
+    } else if (v.speed < 5) {
+      // Crawling — below the "moving" threshold in the state engine
+      statusLabel = "SLOWING";
+      statusColor = "#fbbf24";
+      statusEmoji = "🐢";
+    } else {
+      statusLabel = "MOVING";
+      statusColor = "#10b981";
+      statusEmoji = "🚌";
+    }
+
     return `
       <div style="min-width: 240px; color: #1a1d2a;">
         <div style="font-weight: 700; font-size: 14px; margin-bottom: 6px;">
           ${v.vehicleName} <span style="font-family: monospace; font-size: 11px; opacity: 0.6;">${v.vehicleNumber}</span>
         </div>
-        <div style="font-size: 12px; margin-bottom: 4px;">Status: <strong style="color: ${isLive ? "#10b981" : "#ef4444"}; text-transform: uppercase; letter-spacing: 0.05em;">${isLive ? "🚌 MOVING" : "OFF"}</strong></div>
-        ${v.speed !== undefined && isLive ? `<div style="font-size: 12px; margin-bottom: 4px;">Speed: <span style="font-family: monospace; color: #06b6d4; font-weight: 600;">${Math.round(v.speed)} km/h</span></div>` : ""}
+        <div style="font-size: 12px; margin-bottom: 4px;">Status: <strong style="color: ${statusColor}; text-transform: uppercase; letter-spacing: 0.05em;">${statusEmoji} ${statusLabel}</strong></div>
+        ${v.speed !== undefined && isLive ? `<div style="font-size: 12px; margin-bottom: 4px;">Speed: <span style="font-family: monospace; color: ${v.speed < 1 ? "#fbbf24" : "#06b6d4"}; font-weight: 600;">${Math.round(v.speed)} km/h</span>${v.speed < 1 ? ' <span style="font-size: 10px; color: #f59e0b; font-weight: 700;">(stationary)</span>' : ''}</div>` : ""}
         ${isLive ? `<div style="font-size: 12px; margin-bottom: 4px;">Updated: <span style="color: #10b981; font-weight: 600;">${v.lastSeenAt ? timeAgo(new Date(v.lastSeenAt)) : "just now"}</span></div>` : ""}
         ${v.heading != null && isLive ? `<div style="font-size: 12px; margin-bottom: 4px;">Heading: <span style="font-family: monospace; color: #f59e0b; font-weight: 600;">${Math.round(v.heading)}°</span></div>` : ""}
         <div style="font-size: 11px; color: #64748b; margin-top: 6px;">${v.coords.lat.toFixed(4)}, ${v.coords.lng.toFixed(4)}</div>

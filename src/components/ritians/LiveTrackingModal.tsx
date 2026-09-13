@@ -1061,7 +1061,12 @@ function RouteDetailView({
               </div>
               <div>
                 <div className="text-slate-500 text-[10px]">Bus speed</div>
-                <div className="font-bold text-cyan-300">{Math.round(selectedBus.speed)} km/h</div>
+                <div className={`font-bold ${selectedBus.speed < 1 ? "text-amber-400" : "text-cyan-300"}`}>
+                  {Math.round(selectedBus.speed)} km/h
+                  {selectedBus.speed < 1 && (
+                    <span className="ml-1 text-[9px] text-amber-400">🛑 NOT MOVING</span>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -1122,7 +1127,18 @@ function RouteDetailView({
           <div className="text-[9px] uppercase tracking-widest text-amber-400 font-bold mb-1 flex items-center gap-1">
             <i className="fas fa-gauge-high text-[10px]" /> Speed
           </div>
-          <div className="text-sm font-bold text-white">{Math.round(selectedBus.speed)}<span className="text-[10px] text-slate-500 font-normal ml-1">km/h</span></div>
+          {/* When the bus is not moving (speed < 1 km/h), show a prominent
+              "NOT MOVING" badge below the speed value so the passenger is
+              never confused about whether the bus is actually moving. */}
+          <div className="text-sm font-bold text-white">
+            {Math.round(selectedBus.speed)}
+            <span className="text-[10px] text-slate-500 font-normal ml-1">km/h</span>
+          </div>
+          {selectedBus.speed < 1 && (
+            <div className="mt-1 text-[9px] font-bold text-amber-400 px-1.5 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/30 inline-block animate-pulse">
+              🛑 NOT MOVING
+            </div>
+          )}
           <div className="mt-1.5 h-[3px] bg-[#1a2032] rounded-full overflow-hidden">
             <div className="h-full bg-amber-500 rounded-full transition-all" style={{ width: `${Math.min(100, (selectedBus.speed / 80) * 100)}%` }} />
           </div>

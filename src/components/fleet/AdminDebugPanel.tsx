@@ -33,11 +33,14 @@ interface SimulatedBusConfig {
   vehicleName: string;
 }
 
-// Map bus state → color + label
+// Map bus state → color + label.
+// STOPPED uses amber (not red) — it's a normal state, not an error.
+// The label is "🛑 NOT MOVING" so the user is never confused about whether
+// the bus is actually moving.
 const STATE_STYLES: Record<BusState, { color: string; bg: string; label: string }> = {
   MOVING: { color: "#10b981", bg: "rgba(16,185,129,0.15)", label: "🚌 MOVING" },
   SLOWING: { color: "#fbbf24", bg: "rgba(251,191,36,0.15)", label: "🐢 SLOWING" },
-  STOPPED: { color: "#ef4444", bg: "rgba(239,68,68,0.15)", label: "🛑 STOPPED" },
+  STOPPED: { color: "#fbbf24", bg: "rgba(251,191,36,0.15)", label: "🛑 NOT MOVING" },
   ACCELERATING: { color: "#06b6d4", bg: "rgba(6,182,212,0.15)", label: "⚡ ACCELERATING" },
   GPS_LOST: { color: "#f97316", bg: "rgba(249,115,22,0.15)", label: "📡 GPS LOST" },
   NETWORK_TRACKING: { color: "#a78bfa", bg: "rgba(167,139,250,0.15)", label: "📶 NETWORK" },
@@ -331,6 +334,19 @@ export function AdminDebugPanel({ onBack }: AdminDebugPanelProps) {
               <div style={{ fontWeight: 700, color: "#06b6d4", marginBottom: 6 }}>
                 {selectedBus?.vehicleName} — Full Telemetry
               </div>
+              {/* NOT MOVING banner — shown prominently when the bus is stopped.
+                  This is the user's request: "if it not moving pls display not moving".
+                  The banner is amber, full-width, and pulses so it's impossible to miss. */}
+              {selectedTelemetry.state === "STOPPED" && (
+                <div style={{
+                  padding: "8px 12px", marginBottom: 10, borderRadius: 6,
+                  background: "rgba(251,191,36,0.15)", border: "1px solid rgba(251,191,36,0.4)",
+                  color: "#fbbf24", fontWeight: 700, fontSize: 13, textAlign: "center",
+                  animation: "rtPulse 2s infinite",
+                }}>
+                  🛑 NOT MOVING — bus is stationary at current location
+                </div>
+              )}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "4px 12px" }}>
                 <span style={{ color: "#64748b" }}>lat:</span>
                 <span>{selectedTelemetry.coords.lat.toFixed(6)}</span>

@@ -95,7 +95,7 @@ describe("Geometry primitives", () => {
 
   it("lerpHeading: 350 → 10 at t=0.5 = 0", () => {
     const h = lerpHeading(350, 10, 0.5);
-    assert.ok(Math.abs(h - 0) <= 0.5, `h should be ~$0±$0.5`)
+    assert.ok(h !== null && Math.abs(h - 0) <= 0.5, `h should be ~0±0.5`)
   });
 
   it("kmhToMs / msToKmh: round-trip", () => {
@@ -266,7 +266,8 @@ describe("GPS anomaly detection", () => {
 // ============================================================================
 
 describe("Bus state engine", () => {
-  it("TEST 1: speed=0 → STOPPED", () => {
+  it("TEST 1: speed=0 → STOPPED state + marker stationary (no movement)", () => {
+    // 1a. State engine: speed=0 → STOPPED
     const state = deriveBusState({
       speedKmh: 0,
       prevSpeedKmh: 0,
@@ -275,7 +276,26 @@ describe("Bus state engine", () => {
       providerIsGps: true,
       locationAgeS: 0,
     });
-    assert.equal(state, "STOPPED")
+    assert.equal(state, "STOPPED");
+
+    // 1b. Marker interpolation: when speed=0, animation duration must be 0
+    //     (no movement). This is the user's request: "if it not moving pls
+    //     display not moving and make it as real" — the marker must NOT
+    //     animate when the bus is stationary.
+    const interp = planMarkerInterpolation(
+      { lat: 13.0, lng: 80.0 },
+      { lat: 13.001, lng: 80.0 }, // 111m away
+      0, 0,
+      0 // speed = 0
+    );
+    assert.ok(interp !== null, "interpolation should be planned (distance > 0)");
+    assert.equal(interp!.durationMs, 0, "duration must be 0 when speed=0 — marker does not move");
+
+    // 1c. sampleInterpolation at durationMs=0 should return the target
+    //     position immediately (no progressive movement).
+    const sample = sampleInterpolation(interp!, performance.now());
+    assert.ok(sample.t === 1, "t must be 1 immediately when duration=0");
+    assert.ok(Math.abs(sample.coords.lat - 13.001) < 0.0001, "marker must be at target, not moving");
   });
 
   it("TEST 2: speed=10 km/h → MOVING", () => {
@@ -657,7 +677,7 @@ describe("Marker interpolation", () => {
       350, 10, 30
     )!;
     const atMid = sampleInterpolation(interp, interp.startTime + interp.durationMs / 2);
-    assert.ok(Math.abs(atMid.heading - 0) <= 1, `atMid.heading should be ~$0±$1`) // halfway from 350→10 should be 0
+    assert.ok(atMid.heading !== null && Math.abs(atMid.heading - 0) <= 1, `atMid.heading should be ~0±1`) // halfway from 350→10 should be 0
   });
 });
 
