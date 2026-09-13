@@ -112,11 +112,28 @@ export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
   const offlineCount = buses.filter((b) => b.status === "offline").length;
   const selectedBus = buses.find((b) => b.vehicleId === selectedBusId);
 
+  // Build MapVehicle[] for ALL buses — so they all show on the map simultaneously
+  const allMapVehicles: MapVehicle[] = buses.map((b) => {
+    const routeInfo = ALL_ROUTES.find((r) => r.routeNo === b.routeNo);
+    return {
+      id: b.vehicleId,
+      vehicleNumber: b.vehicleNumber,
+      vehicleName: routeInfo ? routeInfo.routeName : b.vehicleName,
+      status: (b.status === "live" || b.status === "tracking") ? "live" as const : "offline" as const,
+      coords: b.coords,
+      speed: b.speed,
+      heading: b.heading ?? undefined,
+      lastSeenAt: b.lastSeenAt > 0 ? new Date(b.lastSeenAt).toISOString() : undefined,
+      routeNo: b.routeNo,
+      selected: b.vehicleId === selectedBusId,
+    };
+  });
+
   return (
     <div className="min-h-screen flex flex-col bg-[#0a0d18] text-slate-100">
       {/* Header */}
       <header className="sticky top-0 z-40 bg-[#0a0d18]/95 backdrop-blur border-b border-[#1f2538] flex-shrink-0">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+        <div className="px-4 py-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={onBack}
@@ -131,11 +148,11 @@ export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
             <div className="min-w-0">
               <h1 className="text-base font-bold tracking-tight text-slate-100 leading-none">Live Tracking</h1>
               <p className="text-[10px] uppercase tracking-widest text-slate-500 mt-0.5 leading-none">
-                Active Buses · Real-time GPS
+                All Buses · Real-time GPS
               </p>
             </div>
           </div>
-          {/* Bus count badge — the key metric the user wants */}
+          {/* Bus count badge */}
           <div className="flex items-center gap-2 flex-shrink-0">
             <span className={`inline-flex items-center justify-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-semibold tracking-wide ${
               activeCount > 0
@@ -149,48 +166,39 @@ export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
         </div>
       </header>
 
-      {/* Main */}
-      <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-4 pb-24 overflow-y-auto">
-        {loading ? (
-          <div className="text-center py-20 text-slate-500">
+      {/* Full-view layout: bus list sidebar (left) + map (right, takes most of screen) */}
+      {loading ? (
+        <div className="flex-1 flex items-center justify-center text-slate-500">
+          <div className="text-center">
             <i className="fas fa-spinner fa-spin text-2xl block mb-3" />
             <p className="text-sm">Loading active buses…</p>
           </div>
-        ) : buses.length === 0 ? (
-          /* Empty state — no buses have GPS coordinates at all */
-          <div className="text-center py-20">
+        </div>
+      ) : buses.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center max-w-md">
             <div className="w-16 h-16 rounded-full bg-slate-700/30 flex items-center justify-center mx-auto mb-4">
               <i className="fas fa-bus text-2xl text-slate-500" />
             </div>
             <h2 className="text-lg font-bold text-slate-300 mb-2">No buses are tracked yet</h2>
-            <p className="text-sm text-slate-500 max-w-md mx-auto">
+            <p className="text-sm text-slate-500">
               When a driver starts sharing their location from the Driver GPS portal,
               their bus will appear here in real-time with its position on the map.
             </p>
-            <div className="mt-6 p-4 rounded-xl border border-[#1f2538] bg-[#10131f] max-w-md mx-auto text-left">
-              <div className="text-[10px] uppercase tracking-widest text-amber-400 font-bold mb-2">
-                <i className="fas fa-info-circle mr-1" /> How to start
-              </div>
-              <ol className="text-[12px] text-slate-400 space-y-1 list-decimal list-inside">
-                <li>Go to <strong className="text-slate-200">Driver GPS</strong> from the navbar</li>
-                <li>Select your bus route</li>
-                <li>Click <strong className="text-emerald-300">Start Sharing Location</strong></li>
-                <li>The bus will appear here within 2 seconds</li>
-              </ol>
-            </div>
           </div>
-        ) : (
-          /* Active bus list — each card shows the bus info + opens the live map */
-          <>
-            <div className="text-[10px] uppercase tracking-widest text-emerald-400 font-bold mb-3 px-1">
-              {activeCount > 0
-                ? `${activeCount} ${activeCount === 1 ? "bus" : "buses"} currently sharing location`
-                : `${buses.length} ${buses.length === 1 ? "bus" : "buses"} in the fleet`}
-              {offlineCount > 0 && activeCount > 0 && (
-                <span className="text-slate-500 ml-2">· {offlineCount} offline</span>
-              )}
+        </div>
+      ) : (
+        <div className="flex-1 flex overflow-hidden">
+          {/* Left sidebar: bus list (scrollable) */}
+          <div className="w-80 flex-shrink-0 border-r border-[#1f2538] bg-[#0a0d18] overflow-y-auto">
+            <div className="p-3 sticky top-0 bg-[#0a0d18] z-10 border-b border-[#1f2538]">
+              <div className="text-[10px] uppercase tracking-widest text-emerald-400 font-bold">
+                {activeCount > 0
+                  ? `${activeCount} live · ${offlineCount} offline`
+                  : `${buses.length} buses in fleet`}
+              </div>
             </div>
-            <div className="grid gap-3">
+            <div className="p-2 space-y-1">
               {buses.map((bus) => (
                 <ActiveBusCard
                   key={bus.vehicleId}
@@ -199,11 +207,33 @@ export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
                 />
               ))}
             </div>
-          </>
-        )}
-      </main>
+          </div>
 
-      {/* Bus detail modal — shows the live map with start/end points + bus marker */}
+          {/* Right: full-view map showing ALL buses */}
+          <div className="flex-1 relative">
+            <FleetMap
+              vehicles={allMapVehicles}
+              selectedVehicleId={selectedBusId}
+              onSelectVehicle={(id) => setSelectedBusId(id)}
+              height="100%"
+              centerOnSelected={!!selectedBusId}
+            />
+            {/* Map legend overlay */}
+            <div className="absolute top-3 right-3 z-[500] bg-[#0a0d18]/90 backdrop-blur rounded-lg border border-[#1f2538] px-3 py-2 text-[10px] text-slate-400">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="w-2 h-2 rounded-full bg-emerald-500" style={{ boxShadow: "0 0 4px #10b981" }} />
+                <span>Live bus</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-slate-500" />
+                <span>Offline bus</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bus detail modal — opens when a bus is selected */}
       {selectedBus && (
         <BusDetailModal
           bus={selectedBus}
