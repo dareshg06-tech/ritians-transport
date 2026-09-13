@@ -1,42 +1,16 @@
-// Seed script — populates vehicles, demo users
+// Seed script — populates vehicles for ALL 54 routes
 import { PrismaClient } from "@prisma/client";
+import { routes as ALL_ROUTES } from "../src/lib/ritians/data";
 
 const prisma = new PrismaClient();
 
-// 10 sample buses with route numbers covering Chennai
-const VEHICLES = [
-  { vehicleNumber: "BUS-001", vehicleName: "Bus One",   driverName: "Kumar",   routeNo: "R01" },
-  { vehicleNumber: "BUS-002", vehicleName: "Bus Two",   driverName: "Ravi",    routeNo: "R12" },
-  { vehicleNumber: "BUS-003", vehicleName: "Bus Three", driverName: "Suresh",  routeNo: "R24" },
-  { vehicleNumber: "BUS-004", vehicleName: "Bus Four",   driverName: "Anand",   routeNo: "R16B" },
-  { vehicleNumber: "BUS-005", vehicleName: "Bus Five",  driverName: "Mohan",   routeNo: "R29" },
-  { vehicleNumber: "BUS-006", vehicleName: "Bus Six",    driverName: "Vinod",   routeNo: "R05" },
-  { vehicleNumber: "BUS-007", vehicleName: "Bus Seven",  driverName: "Deepak",  routeNo: "R08" },
-  { vehicleNumber: "BUS-008", vehicleName: "Bus Eight",  driverName: "Prakash",  routeNo: "R03A" },
-  { vehicleNumber: "BUS-009", vehicleName: "Bus Nine",   driverName: "Arjun",   routeNo: "R16" },
-  { vehicleNumber: "BUS-010", vehicleName: "Bus Ten",    driverName: "Bala",    routeNo: "R27" },
-];
-
-// Each bus's main destination coords (lat, lng) for initial seed
-const ROUTE_COORDS: Record<string, { lat: number; lng: number }> = {
-  R01: { lat: 13.2167, lng: 80.3000 }, // Ennore
-  R12: { lat: 13.2767, lng: 80.2500 }, // Minjur
-  R24: { lat: 12.9100, lng: 79.3300 }, // Arcot
-  R16B: { lat: 12.8900, lng: 80.2270 }, // Sholinganallur
-  R29: { lat: 12.9800, lng: 80.2200 }, // Velachery
-  R05: { lat: 13.0290, lng: 80.2330 }, // CIT Nagar
-  R08: { lat: 12.9160, lng: 80.1440 }, // Kovilambakkam
-  R03A: { lat: 13.0773, lng: 80.2133 }, // Collector Nagar
-  R16: { lat: 12.9300, lng: 80.2500 }, // Neelangkarai
-  R27: { lat: 13.1100, lng: 80.1100 }, // Avadi
-};
-
 async function main() {
-  console.log("Seeding...");
+  console.log("Seeding all 54 routes...");
 
   // Wipe existing data
   await prisma.stopCrossing.deleteMany();
   await prisma.vehicleLocation.deleteMany();
+  await prisma.busLocationAnomaly.deleteMany();
   await prisma.trackingSession.deleteMany();
   await prisma.vehicle.deleteMany();
   await prisma.user.deleteMany();
@@ -51,31 +25,33 @@ async function main() {
     },
   });
 
-  // Create driver users
-  for (const v of VEHICLES) {
+  // Create a vehicle for EVERY route in data.ts (54 routes)
+  for (let i = 0; i < ALL_ROUTES.length; i++) {
+    const r = ALL_ROUTES[i];
+    const vehicleNumber = `BUS-${String(i + 1).padStart(3, "0")}`;
+    const driverName = `Driver ${i + 1}`;
+
+    // Create driver user
     await prisma.user.create({
       data: {
-        email: `driver@${v.vehicleNumber.toLowerCase()}.local`,
-        name: v.driverName,
+        email: `driver@bus${String(i + 1).padStart(3, "0")}.local`,
+        name: driverName,
         role: "driver",
         password: "123456",
       },
     });
-  }
 
-  // Create vehicles with their main destination coords
-  for (const v of VEHICLES) {
-    const coords = ROUTE_COORDS[v.routeNo];
+    // Create vehicle with the route's main destination coords
     await prisma.vehicle.create({
       data: {
-        vehicleNumber: v.vehicleNumber,
-        vehicleName: v.vehicleName,
+        vehicleNumber,
+        vehicleName: r.routeName,
         vehicleType: "bus",
-        driverName: v.driverName,
-        routeNo: v.routeNo,
+        driverName,
+        routeNo: r.routeNo,
         status: "offline",
-        lastLat: coords.lat,
-        lastLng: coords.lng,
+        lastLat: r.coords.lat,
+        lastLng: r.coords.lng,
         lastSpeed: 0,
         lastHeading: 0,
         lastAccuracy: 0,
@@ -86,7 +62,7 @@ async function main() {
   }
 
   const count = await prisma.vehicle.count();
-  console.log(`✓ Seeded ${count} vehicles`);
+  console.log(`✓ Seeded ${count} vehicles for all routes`);
 }
 
 main()
