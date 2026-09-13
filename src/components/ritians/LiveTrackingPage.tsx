@@ -55,9 +55,12 @@ export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
         const data = await res.json();
         const vehicles = data.vehicles || [];
         const now = Date.now();
-        const active: ActiveBus[] = vehicles
-          .filter((v: { lastLat: number | null; lastLng: number | null; lastSeenAt: string | null }) =>
-            v.lastLat != null && v.lastLng != null && v.lastSeenAt
+        // Show ALL buses that have GPS coordinates (lastLat/lastLng).
+        // Buses with a recent fix (< 60s) are "live", older fixes are "offline".
+        // This way the user always sees buses in the list — not an empty page.
+        const all: ActiveBus[] = vehicles
+          .filter((v: { lastLat: number | null; lastLng: number | null }) =>
+            v.lastLat != null && v.lastLng != null
           )
           .map((v: {
             id: string;
@@ -69,10 +72,10 @@ export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
             lastLng: number;
             lastSpeed: number | null;
             lastHeading: number | null;
-            lastSeenAt: string;
+            lastSeenAt: string | null;
             status: string;
           }) => {
-            const age = now - new Date(v.lastSeenAt).getTime();
+            const age = v.lastSeenAt ? now - new Date(v.lastSeenAt).getTime() : Infinity;
             return {
               vehicleId: v.id,
               vehicleNumber: v.vehicleNumber,
@@ -82,12 +85,19 @@ export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
               coords: { lat: v.lastLat, lng: v.lastLng },
               speed: v.lastSpeed || 0,
               heading: v.lastHeading,
-              lastSeenAt: new Date(v.lastSeenAt).getTime(),
+              lastSeenAt: v.lastSeenAt ? new Date(v.lastSeenAt).getTime() : 0,
               status: age < 60000 ? (v.status === "tracking" ? "tracking" : "live") : "offline",
             } as ActiveBus;
-          })
-          .filter((b: ActiveBus) => b.status !== "offline");
-        setBuses(active);
+          });
+        // Sort: live/tracking first, then offline
+        all.sort((a: ActiveBus, b: ActiveBus) => {
+          const aLive = a.status === "live" || a.status === "tracking";
+          const bLive = b.status === "live" || b.status === "tracking";
+          if (aLive && !bLive) return -1;
+          if (!aLive && bLive) return 1;
+          return 0;
+        });
+        setBuses(all);
         setLoading(false);
       } catch (_) {
         setLoading(false);
@@ -99,6 +109,7 @@ export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
   }, []);
 
   const activeCount = buses.filter((b) => b.status === "live" || b.status === "tracking").length;
+  const offlineCount = buses.filter((b) => b.status === "offline").length;
   const selectedBus = buses.find((b) => b.vehicleId === selectedBusId);
 
   return (
@@ -146,12 +157,12 @@ export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
             <p className="text-sm">Loading active buses…</p>
           </div>
         ) : buses.length === 0 ? (
-          /* Empty state — no buses are currently sharing location */
+          /* Empty state — no buses have GPS coordinates at all */
           <div className="text-center py-20">
             <div className="w-16 h-16 rounded-full bg-slate-700/30 flex items-center justify-center mx-auto mb-4">
               <i className="fas fa-bus text-2xl text-slate-500" />
             </div>
-            <h2 className="text-lg font-bold text-slate-300 mb-2">No buses are live right now</h2>
+            <h2 className="text-lg font-bold text-slate-300 mb-2">No buses are tracked yet</h2>
             <p className="text-sm text-slate-500 max-w-md mx-auto">
               When a driver starts sharing their location from the Driver GPS portal,
               their bus will appear here in real-time with its position on the map.
@@ -172,7 +183,12 @@ export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
           /* Active bus list — each card shows the bus info + opens the live map */
           <>
             <div className="text-[10px] uppercase tracking-widest text-emerald-400 font-bold mb-3 px-1">
-              {activeCount} {activeCount === 1 ? "bus" : "buses"} currently sharing location
+              {activeCount > 0
+                ? `${activeCount} ${activeCount === 1 ? "bus" : "buses"} currently sharing location`
+                : `${buses.length} ${buses.length === 1 ? "bus" : "buses"} in the fleet`}
+              {offlineCount > 0 && activeCount > 0 && (
+                <span className="text-slate-500 ml-2">· {offlineCount} offline</span>
+              )}
             </div>
             <div className="grid gap-3">
               {buses.map((bus) => (
@@ -204,11 +220,16 @@ export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
 function ActiveBusCard({ bus, onClick }: { bus: ActiveBus; onClick: () => void }) {
   const ageS = Math.floor((Date.now() - bus.lastSeenAt) / 1000);
   const routeInfo = ALL_ROUTES.find((r) => r.routeNo === bus.routeNo);
+  const isOffline = bus.status === "offline";
 
   return (
     <button
       onClick={onClick}
-      className="w-full text-left rounded-2xl border border-[#1f2538] bg-[#10131f] p-4 hover:border-emerald-500/40 hover:bg-[#161b2b] transition-all flex items-center gap-4"
+      className={`w-full text-left rounded-2xl border p-4 transition-all flex items-center gap-4 ${
+        isOffline
+          ? "border-[#1f2538] bg-[#10131f] hover:border-[#2a3252] hover:bg-[#161b2b] opacity-75"
+          : "border-[#1f2538] bg-[#10131f] hover:border-emerald-500/40 hover:bg-[#161b2b]"
+      }`}
     >
       <div className="flex-shrink-0 w-12 h-12 rounded-lg flex flex-col items-center justify-center bg-[#1a2032]">
         <span className="text-[10px] uppercase tracking-wider text-slate-500 leading-none">RTE</span>
@@ -222,19 +243,29 @@ function ActiveBusCard({ bus, onClick }: { bus: ActiveBus; onClick: () => void }
           <span className="flex items-center gap-1">
             <i className="fas fa-id-card text-[10px]" /> {bus.driverName}
           </span>
+          {!isOffline && (
+            <span className="flex items-center gap-1">
+              <i className="fas fa-gauge-high text-[10px]" /> {Math.round(bus.speed)} km/h
+            </span>
+          )}
           <span className="flex items-center gap-1">
-            <i className="fas fa-gauge-high text-[10px]" /> {Math.round(bus.speed)} km/h
-          </span>
-          <span className="flex items-center gap-1">
-            <i className="fas fa-clock text-[10px]" /> {ageS < 60 ? `${ageS}s ago` : `${Math.floor(ageS / 60)}m ago`}
+            <i className="fas fa-clock text-[10px]" />
+            {bus.lastSeenAt === 0 ? "never" : ageS < 60 ? `${ageS}s ago` : ageS < 3600 ? `${Math.floor(ageS / 60)}m ago` : `${Math.floor(ageS / 3600)}h ago`}
           </span>
         </div>
       </div>
-      {/* Live badge */}
-      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 text-[10px] font-semibold flex-shrink-0">
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" style={{ boxShadow: "0 0 6px #10b981" }} />
-        LIVE
-      </div>
+      {/* Status badge — LIVE for active, OFFLINE for stale */}
+      {isOffline ? (
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-slate-600 bg-slate-700/30 text-slate-400 text-[10px] font-semibold flex-shrink-0">
+          <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+          OFFLINE
+        </div>
+      ) : (
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 text-[10px] font-semibold flex-shrink-0">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" style={{ boxShadow: "0 0 6px #10b981" }} />
+          LIVE
+        </div>
+      )}
       <i className="fas fa-chevron-right text-slate-600 text-[12px] flex-shrink-0" />
     </button>
   );
