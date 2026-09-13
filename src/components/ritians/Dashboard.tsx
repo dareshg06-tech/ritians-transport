@@ -41,19 +41,19 @@ export function Dashboard() {
   const [tab, setTab] = useState<Tab>("student");
   const [viewMode, setViewMode] = useState<ViewMode>("desktop");
   const [routes, setRoutes] = useState<Route[]>(initialRoutes);
-  const [parking, setParking] = useState<Record<string, ParkingInfo>>(() => {
-    if (typeof window === "undefined") return {};
-    try {
-      const s = localStorage.getItem(PARKING_KEY);
-      return s ? JSON.parse(s) : {};
-    } catch (_) {
-      return {};
-    }
-  });
+  const [parking, setParking] = useState<Record<string, ParkingInfo>>({});
   const [stopsRouteNo, setStopsRouteNo] = useState<string | null>(null);
   const [stopsTrip, setStopsTrip] = useState<"morning" | "afternoon">("morning");
   const [modalWhich, setModalWhich] = useState<ModalWhich>(null);
   const [fullPage, setFullPage] = useState<FullPage>(null);
+
+  // Load parking from localStorage on mount (client-only, avoids hydration mismatch)
+  useEffect(() => {
+    try {
+      const s = localStorage.getItem(PARKING_KEY);
+      if (s) setParking(JSON.parse(s));
+    } catch (_) {}
+  }, []);
 
   // Apply mobile view class to body
   useEffect(() => {

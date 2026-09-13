@@ -19,11 +19,9 @@ export function Navbar({
   activeTab, onTabClick, onOpenTracking, onOpenDriverGps, onOpenPhysicsDebug, viewMode, onToggleView,
 }: NavbarProps) {
   const { session, logout } = useAuth();
-  const [mounted, setMounted] = useState(false);
   const [clock, setClock] = useState("--:--:--");
 
   useEffect(() => {
-    setMounted(true);
     const tick = () => {
       const n = new Date();
       setClock(
@@ -35,11 +33,8 @@ export function Navbar({
     return () => clearInterval(id);
   }, []);
 
-  // Use mounted flag to avoid hydration mismatch — the clock and session
-  // are only available on the client, so we render a placeholder on SSR.
-  const avatarInitial = mounted ? (session?.displayName || "S").charAt(0).toUpperCase() : "S";
-  const displayName = mounted ? (session?.displayName || "Student") : "Student";
-  const clockDisplay = mounted ? clock : "--:--:--";
+  const avatarInitial = (session?.displayName || "S").charAt(0).toUpperCase();
+  const displayName = session?.displayName || "Student";
 
   return (
     <>
@@ -92,7 +87,7 @@ export function Navbar({
               </button>
             )}
           </div>
-          <div className="rt-clock">{clockDisplay}</div>
+          <div className="rt-clock">{clock}</div>
           <div className="rt-auth-chip">
             <div className="avatar">{avatarInitial}</div>
             <span>{displayName}</span>

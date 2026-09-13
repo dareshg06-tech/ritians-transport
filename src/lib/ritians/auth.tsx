@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useCallback, useState } from "react";
+import React, { createContext, useContext, useCallback, useEffect, useState } from "react";
 
 // ── Auth ────────────────────────────────────────────────────────────────────
 // User explicitly requested login "123456" and password "123456".
@@ -94,25 +94,25 @@ function deriveDisplayName(role: Role, identifier: string): string {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  // Lazy-init from localStorage — avoids the set-state-in-effect lint error
-  // and also avoids a flash of unauthed state on mount.
-  const [session, setSession] = useState<Session | null>(() => {
-    if (typeof window === "undefined") return null;
+  // Always start with null on both server and client to avoid hydration mismatch.
+  // The actual session is loaded from localStorage in a useEffect after mount.
+  const [session, setSession] = useState<Session | null>(null);
+  const [adminUnlocked, setAdminUnlocked] = useState<boolean>(false);
+  const [driverUnlocked, setDriverUnlocked] = useState<boolean>(false);
+  const [hydrated, setHydrated] = useState(false);
+
+  // Load from localStorage AFTER mount — this runs only on the client,
+  // so the server and client both render null/false initially (matching),
+  // then the client updates to the real values without a hydration error.
+  useEffect(() => {
     try {
       const s = localStorage.getItem(STORAGE_KEY);
-      return s ? JSON.parse(s) : null;
-    } catch (_) {
-      return null;
-    }
-  });
-  const [adminUnlocked, setAdminUnlocked] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem(ADMIN_KEY) === "1";
-  });
-  const [driverUnlocked, setDriverUnlocked] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem(DRIVER_KEY) === "1";
-  });
+      if (s) setSession(JSON.parse(s));
+    } catch (_) {}
+    setAdminUnlocked(localStorage.getItem(ADMIN_KEY) === "1");
+    setDriverUnlocked(localStorage.getItem(DRIVER_KEY) === "1");
+    setHydrated(true);
+  }, []);
 
   const login = useCallback((identifier: string, password: string) => {
     const id = identifier.trim();
