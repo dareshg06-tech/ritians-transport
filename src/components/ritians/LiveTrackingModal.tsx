@@ -739,6 +739,7 @@ function RouteDetailView({
   onBack,
   tick,
   isMobile = false,
+  mode = "online",
 }: {
   routeNo: string;
   buses: BusPosition[];
@@ -746,8 +747,18 @@ function RouteDetailView({
   onBack: () => void;
   tick: number;
   isMobile?: boolean;
+  mode?: "online" | "offline";
 }) {
   const [followToggle, setFollowToggle] = useState(true);
+  // Passenger location state — auto-detected via browser geolocation,
+  // or manually selected from the route's boarding stops. Used to compute
+  // the distance from the passenger to the bus (like "Where is my Train").
+  const [passengerCoords, setPassengerCoords] = useState<Coord | null>(null);
+  const [passengerStopIdx, setPassengerStopIdx] = useState<number | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
+
   const selRoute = ALL_ROUTES.find((r) => r.routeNo === routeNo);
   const selectedBus = buses.find((b) => b.routeNo === routeNo);
   if (!selRoute || !selectedBus) return null;
@@ -763,6 +774,83 @@ function RouteDetailView({
   if (coordsList.length > 0) coordsList[coordsList.length - 1] = RIT_CAMPUS_COORDS;
   const currentPos = selectedBus.coords;
 
+  // ─── Passenger location helpers ──────────────────────────────────────
+  // Auto-detect passenger location via browser geolocation.
+  const detectMyLocation = () => {
+    if (mode === "offline") {
+      setLocationError("Location detection is unavailable in offline mode. Please pick a boarding stop manually.");
+      setShowLocationPicker(true);
+      return;
+    }
+    if (!navigator.geolocation) {
+      setLocationError("Geolocation not supported. Please pick a boarding stop manually.");
+      setShowLocationPicker(true);
+      return;
+    }
+    setLocating(true);
+    setLocationError(null);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setPassengerCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setPassengerStopIdx(null); // clear any manual pick
+        setLocating(false);
+        // Try to snap to nearest boarding stop (within 500m)
+        let bestIdx = -1;
+        let bestDist = Infinity;
+        stops.forEach((s, i) => {
+          if (!s.coords) return;
+          const d = haversineDist({ lat: pos.coords.latitude, lng: pos.coords.longitude }, s.coords);
+          if (d < bestDist) { bestDist = d; bestIdx = i; }
+        });
+        if (bestIdx >= 0 && bestDist < 500) {
+          setPassengerStopIdx(bestIdx);
+        }
+      },
+      (err) => {
+        setLocating(false);
+        let msg = "Could not get your location. ";
+        if (err.code === 1) msg += "Permission denied — please pick a boarding stop manually.";
+        else if (err.code === 2) msg += "GPS unavailable — please pick a boarding stop manually.";
+        else if (err.code === 3) msg += "Request timed out — please pick a boarding stop manually.";
+        else msg += err.message;
+        setLocationError(msg);
+        setShowLocationPicker(true);
+      },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 8000 }
+    );
+  };
+
+  // The "effective" passenger coordinates — either auto-detected GPS,
+  // or the coords of the manually-selected boarding stop.
+  const effectivePassengerCoords: Coord | null = passengerCoords
+    ?? (passengerStopIdx != null && stops[passengerStopIdx]?.coords ? stops[passengerStopIdx]!.coords! : null);
+
+  // ─── Distance from passenger to bus (the key "Where is my Train" metric) ───
+  const passengerToBusM = effectivePassengerCoords
+    ? haversineDist(effectivePassengerCoords, currentPos)
+    : null;
+  const passengerToBusKm = passengerToBusM != null ? passengerToBusM / 1000 : null;
+
+  // ETA from bus to passenger's stop (if passenger is at a stop, how long until bus arrives?)
+  const passengerStop = passengerStopIdx != null ? stops[passengerStopIdx] : null;
+  const busToPassengerStopM = passengerStop?.coords
+    ? haversineDist(currentPos, passengerStop.coords)
+    : null;
+  // If the bus has already passed the passenger's stop, ETA is 0 (bus is here/past)
+  const busPassedPassengerStop = (() => {
+    if (passengerStopIdx == null) return false;
+    // If bus is closer to RIT Campus than the passenger's stop, bus has passed it
+    const distBusToEnd = haversineDist(currentPos, RIT_CAMPUS_COORDS);
+    const distStopToEnd = passengerStop?.coords ? haversineDist(passengerStop.coords, RIT_CAMPUS_COORDS) : Infinity;
+    return distBusToEnd < distStopToEnd - 30;
+  })();
+  const etaToPassengerMin = busPassedPassengerStop
+    ? 0
+    : (busToPassengerStopM != null
+      ? Math.max(1, Math.round((busToPassengerStopM / 1000) / (Math.max(selectedBus.speed, 20) / 60)))
+      : null);
+
+  // ─── Crossing detection (existing logic, unchanged) ──────────────────
   const crossedStops = new Set<number>();
   stops.forEach((s, i) => {
     const sc = s.coords || r.coords;
@@ -828,11 +916,191 @@ function RouteDetailView({
         </div>
       </div>
 
-      {/* Stats: distance + ETA + speed */}
+      {/* ═══ "Where is my Train" / "Chalo" style passenger panel ═══
+          Shows: bus location, distance to user, ETA to user's stop, speed, status.
+          First the user picks the bus (done — they're on this route detail page),
+          then they pick/detect their location. Then we compute the distance. */}
+
+      {/* Passenger location panel — pick/detect "your location" */}
+      <div className="rounded-2xl border border-[#1f2538] bg-[#10131f] p-3.5">
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-[10px] uppercase tracking-widest text-emerald-400 font-bold flex items-center gap-1.5">
+            <i className="fas fa-street-view" /> Your Location
+          </div>
+          {effectivePassengerCoords && (
+            <span className="text-[10px] text-slate-500 font-mono">
+              {effectivePassengerCoords.lat.toFixed(4)}, {effectivePassengerCoords.lng.toFixed(4)}
+            </span>
+          )}
+        </div>
+
+        {!effectivePassengerCoords && !locating && (
+          <div className="text-center py-2">
+            <p className="text-[11px] text-slate-400 mb-2">
+              {mode === "offline"
+                ? "Offline mode — pick your boarding stop to see distance to the bus."
+                : "Detect your location to see how far the bus is from you."}
+            </p>
+            <div className="flex gap-2 justify-center flex-wrap">
+              {mode === "online" && (
+                <button
+                  onClick={detectMyLocation}
+                  className="px-3 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-[11px] font-semibold hover:bg-emerald-500/25 transition-colors flex items-center gap-1.5"
+                >
+                  <i className="fas fa-location-crosshairs" /> Detect My Location
+                </button>
+              )}
+              <button
+                onClick={() => setShowLocationPicker(!showLocationPicker)}
+                className="px-3 py-2 rounded-lg bg-[#1a2032] border border-[#2a3252] text-slate-300 text-[11px] font-semibold hover:bg-[#222a4a] transition-colors flex items-center gap-1.5"
+              >
+                <i className="fas fa-list" /> Pick Boarding Stop
+              </button>
+            </div>
+            {locationError && (
+              <p className="text-[10px] text-amber-400 mt-2">{locationError}</p>
+            )}
+          </div>
+        )}
+
+        {locating && (
+          <div className="text-center py-2">
+            <i className="fas fa-spinner fa-spin text-emerald-400 mr-2" />
+            <span className="text-[11px] text-slate-400">Locating you…</span>
+          </div>
+        )}
+
+        {effectivePassengerCoords && (
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex-1 min-w-0">
+              {passengerStopIdx != null && stops[passengerStopIdx] ? (
+                <div>
+                  <div className="text-[12px] font-semibold text-emerald-300 truncate">
+                    <i className="fas fa-circle-dot text-[10px] mr-1" />
+                    {stops[passengerStopIdx].stop}
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    {passengerCoords && passengerStopIdx != null
+                      ? "Auto-detected (nearest stop)"
+                      : "Manually selected boarding stop"}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <div className="text-[12px] font-semibold text-emerald-300 truncate">
+                    <i className="fas fa-location-dot text-[10px] mr-1" />
+                    Your GPS location
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    Not near any boarding stop — showing straight-line distance to bus
+                  </div>
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => { setPassengerCoords(null); setPassengerStopIdx(null); }}
+              className="text-[10px] text-slate-500 hover:text-slate-300 px-2 py-1 rounded-md hover:bg-white/5"
+            >
+              <i className="fas fa-xmark mr-1" /> Reset
+            </button>
+          </div>
+        )}
+
+        {/* Boarding stop picker */}
+        {showLocationPicker && !effectivePassengerCoords && (
+          <div className="mt-3 max-h-[200px] overflow-y-auto rounded-lg border border-[#1a2032] bg-[#0a0d18]">
+            {stops.map((s, i) => (
+              <button
+                key={i}
+                onClick={() => {
+                  setPassengerStopIdx(i);
+                  if (s.coords) setPassengerCoords(s.coords);
+                  setShowLocationPicker(false);
+                }}
+                className="w-full text-left px-3 py-2 hover:bg-[#161b2b] border-b border-[#1a2032] last:border-0 flex items-center gap-2"
+              >
+                <span className="text-[10px] text-slate-500 font-mono w-6">{i + 1}.</span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[12px] text-slate-200 truncate">{s.stop}</div>
+                  <div className="text-[10px] text-slate-500">{s.time}</div>
+                </div>
+                <i className="fas fa-chevron-right text-[10px] text-slate-600" />
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ═══ THE KEY METRIC: Distance from passenger to bus ═══
+          "Where is my Train" / Chalo style — the headline number passengers care about. */}
+      {passengerToBusKm != null && (
+        <div className="rounded-2xl border border-emerald-500/30 bg-gradient-to-br from-emerald-500/10 to-cyan-500/5 p-4">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[10px] uppercase tracking-widest text-emerald-400 font-bold flex items-center gap-1.5">
+              <i className="fas fa-route" /> Bus is {busPassedPassengerStop ? "past your stop" : "away from you"}
+            </div>
+            {isDriverGPS && (
+              <span className="text-[9px] px-2 py-0.5 rounded-full bg-cyan-500/15 border border-cyan-500/40 text-cyan-300 font-semibold flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" /> LIVE GPS
+              </span>
+            )}
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-3xl font-bold text-white">
+              {passengerToBusKm < 1 ? `${Math.round(passengerToBusM!)} m` : `${passengerToBusKm.toFixed(1)} km`}
+            </span>
+            <span className="text-[11px] text-slate-400">from you</span>
+          </div>
+          {passengerStopIdx != null && (
+            <div className="mt-2 grid grid-cols-2 gap-3 text-[11px]">
+              <div>
+                <div className="text-slate-500 text-[10px]">ETA to your stop</div>
+                <div className={`font-bold ${busPassedPassengerStop ? "text-amber-400" : "text-emerald-300"}`}>
+                  {busPassedPassengerStop ? "Bus passed" : `~${etaToPassengerMin} min`}
+                </div>
+              </div>
+              <div>
+                <div className="text-slate-500 text-[10px]">Bus speed</div>
+                <div className="font-bold text-cyan-300">{Math.round(selectedBus.speed)} km/h</div>
+              </div>
+            </div>
+          )}
+          {/* Progress bar showing bus position relative to passenger's stop */}
+          {passengerStopIdx != null && totalStops > 0 && (
+            <div className="mt-3">
+              <div className="flex justify-between text-[9px] text-slate-500 mb-1">
+                <span>{startLocation}</span>
+                <span className="text-emerald-400">▼ Your stop</span>
+                <span>{endLocation}</span>
+              </div>
+              <div className="relative h-2 bg-[#1a2032] rounded-full overflow-hidden">
+                <div
+                  className="absolute h-full bg-gradient-to-r from-emerald-500 to-amber-500 rounded-full transition-all"
+                  style={{ width: `${progressPct}%` }}
+                />
+                {/* Marker for passenger's stop position */}
+                <div
+                  className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-emerald-400 border-2 border-white"
+                  style={{
+                    left: `calc(${(passengerStopIdx / Math.max(1, totalStops - 1)) * 100}% - 6px)`,
+                    boxShadow: "0 0 6px #10b981",
+                  }}
+                />
+              </div>
+              <div className="flex justify-between text-[9px] text-slate-600 mt-1">
+                <span>{progressPct}% complete</span>
+                <span>{crossedCount} / {totalStops} stops crossed</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Stats: distance to campus + ETA to campus + speed */}
       <div className="grid grid-cols-3 gap-2">
         <div className="rounded-xl border border-[#1f2538] bg-[#10131f] p-3">
           <div className="text-[9px] uppercase tracking-widest text-cyan-400 font-bold mb-1 flex items-center gap-1">
-            <i className="fas fa-globe text-[10px]" /> Distance
+            <i className="fas fa-globe text-[10px]" /> To Campus
           </div>
           <div className="text-sm font-bold text-white">{busDistanceKm.toFixed(1)}<span className="text-[10px] text-slate-500 font-normal ml-1">km</span></div>
           <div className="mt-1.5 h-[3px] bg-[#1a2032] rounded-full overflow-hidden">
@@ -1038,7 +1306,7 @@ function FindMyBusTab({
           <h2 className="text-lg font-bold text-white leading-tight mt-0.5 truncate">
             {greeting()}, Student
           </h2>
-          <div className="text-[10px] text-slate-500">Live bus tracking for Chennai routes</div>
+          <div className="text-[10px] text-slate-500">Step 1: Pick your bus · Step 2: Pick your location</div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <span className="inline-flex items-center justify-center rounded-md border px-2 py-0.5 text-xs font-medium gap-1.5 border-slate-600 bg-slate-700/30 text-slate-400">
@@ -1319,8 +1587,8 @@ export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
                 </div>
                 <div className={`text-slate-500 mt-0.5 ${isMobile ? "text-[10px]" : "text-[11px]"}`}>
                   {mode === "online"
-                    ? "Uses real GPS + WebSocket. Driver pushes live location every 2s."
-                    : "Uses scheduled times only. Enable online for real-time updates."}
+                    ? "Real GPS + Google Maps + speed via GPS/network towers. Driver pushes location every 1s. Auto-detect your location to see distance to bus."
+                    : "Scheduled times only — no live GPS. Pick your boarding stop manually to see the route map and stops."}
                 </div>
               </div>
             </div>
@@ -1383,6 +1651,7 @@ export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
               onBack={() => setSelectedRoute(null)}
               tick={tick}
               isMobile={isMobile}
+              mode={mode}
             />
           ) : (
             <FindMyBusTab
