@@ -166,7 +166,7 @@ export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
         </div>
       </header>
 
-      {/* Full-view layout: bus list sidebar (left) + map (right, takes most of screen) */}
+      {/* Bus list — full width, no map */}
       {loading ? (
         <div className="flex-1 flex items-center justify-center text-slate-500">
           <div className="text-center">
@@ -183,22 +183,19 @@ export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
             <h2 className="text-lg font-bold text-slate-300 mb-2">No buses are tracked yet</h2>
             <p className="text-sm text-slate-500">
               When a driver starts sharing their location from the Driver GPS portal,
-              their bus will appear here in real-time with its position on the map.
+              their bus will appear here in real-time.
             </p>
           </div>
         </div>
       ) : (
-        <div className="flex-1 flex overflow-hidden">
-          {/* Left sidebar: bus list (scrollable) */}
-          <div className="w-80 flex-shrink-0 border-r border-[#1f2538] bg-[#0a0d18] overflow-y-auto">
-            <div className="p-3 sticky top-0 bg-[#0a0d18] z-10 border-b border-[#1f2538]">
-              <div className="text-[10px] uppercase tracking-widest text-emerald-400 font-bold">
-                {activeCount > 0
-                  ? `${activeCount} live · ${offlineCount} offline`
-                  : `${buses.length} buses in fleet`}
-              </div>
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-2xl mx-auto px-4 py-4">
+            <div className="text-[10px] uppercase tracking-widest text-emerald-400 font-bold mb-3 px-1">
+              {activeCount > 0
+                ? `${activeCount} live · ${offlineCount} offline`
+                : `${buses.length} buses in fleet`}
             </div>
-            <div className="p-2 space-y-1">
+            <div className="grid gap-3">
               {buses.map((bus) => (
                 <ActiveBusCard
                   key={bus.vehicleId}
@@ -206,28 +203,6 @@ export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
                   onClick={() => setSelectedBusId(bus.vehicleId)}
                 />
               ))}
-            </div>
-          </div>
-
-          {/* Right: full-view map showing ALL buses */}
-          <div className="flex-1 relative">
-            <FleetMap
-              vehicles={allMapVehicles}
-              selectedVehicleId={selectedBusId}
-              onSelectVehicle={(id) => setSelectedBusId(id)}
-              height="100%"
-              centerOnSelected={!!selectedBusId}
-            />
-            {/* Map legend overlay */}
-            <div className="absolute top-3 right-3 z-[500] bg-[#0a0d18]/90 backdrop-blur rounded-lg border border-[#1f2538] px-3 py-2 text-[10px] text-slate-400">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="w-2 h-2 rounded-full bg-emerald-500" style={{ boxShadow: "0 0 4px #10b981" }} />
-                <span>Live bus</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-slate-500" />
-                <span>Offline bus</span>
-              </div>
             </div>
           </div>
         </div>
