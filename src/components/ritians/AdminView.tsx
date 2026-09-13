@@ -154,6 +154,24 @@ export function AdminView({
           </button>
         </div>
 
+        {/* Enable Alerts — admin posts messages/notifications to students */}
+        <div style={{ marginBottom: 16 }}>
+          <button
+            className="rt-admin-quick-link"
+            onClick={() => onOpenQuickLink("notification")}
+            style={{ width: "100%", border: "none", padding: 0, background: "transparent" }}
+          >
+            <div className="rt-admin-quick-link__icon" style={{ background: "rgba(239,68,68,0.15)", color: "#ef4444", borderColor: "rgba(239,68,68,0.3)" }}>
+              <i className="fas fa-bell" />
+            </div>
+            <div className="rt-admin-quick-link__body">
+              <div className="rt-admin-quick-link__title" style={{ color: "#ef4444" }}>Enable Alerts</div>
+              <div className="rt-admin-quick-link__sub">Post messages &amp; alerts to students via the notification column</div>
+            </div>
+            <i className="fas fa-arrow-right rt-admin-quick-link__arrow" />
+          </button>
+        </div>
+
         <div className="rt-admin-layout">
           {/* Form */}
           <div className="rt-panel">

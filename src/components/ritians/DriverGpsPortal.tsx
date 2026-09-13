@@ -534,28 +534,6 @@ export function DriverGpsPortal({ onBack }: DriverGpsProps) {
             />
           )}
 
-          {/* ═══ STUDENT VERIFICATION + FACE CAPTURE ═══
-              At the bottom of the Driver GPS portal, the driver can verify
-              a student by entering their register number. Student details are
-              fetched and displayed. The driver captures a face photo and saves
-              the attendance record. */}
-          <StudentVerification
-            routeNo={selectedRoute}
-            boardingPoint={(() => {
-              // Determine the current/nearest boarding point from GPS
-              if (!gps || !selectedRoute) return undefined;
-              const stops = getRouteStopsWithCoords(selectedRoute);
-              const busCoords = { lat: gps.latitude, lng: gps.longitude };
-              let best: { stop: string; dist: number } | null = null;
-              for (const s of stops) {
-                if (!s.coords) continue;
-                const d = haversineMeters(busCoords, s.coords);
-                if (!best || d < best.dist) best = { stop: s.stop, dist: d };
-              }
-              return best && best.dist < 500 ? best.stop : undefined;
-            })()}
-          />
-
           {/* Back button */}
           <button className="rt-btn rt-btn-ghost rt-btn-sm rt-btn-full" style={{ marginTop: 14 }} onClick={onBack}>
             <i className="fas fa-arrow-left" /> Back to Dashboard
