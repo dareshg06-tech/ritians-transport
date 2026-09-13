@@ -25,6 +25,12 @@ export interface MapVehicle {
   lastSeenAt?: string;
   routeNo?: string;
   selected?: boolean;
+  /** GPS accuracy in metres. When > 25m, the map draws an accuracy circle. */
+  accuracy?: number;
+  /** Raw GPS coords (before road-snapping). When set, the map draws a small
+   *  dot at the raw position so the user can see how far the GPS was from
+   *  the snapped route position. */
+  rawCoords?: Coord;
 }
 
 export interface FleetMapProps {
@@ -48,6 +54,9 @@ export function FleetMap({
   const stopLayerRef = useRef<L.LayerGroup | null>(null);
   const routeLayerRef = useRef<L.LayerGroup | null>(null);
   const originDestLayerRef = useRef<L.LayerGroup | null>(null);
+  // Accuracy circle layer — draws a translucent circle around each bus
+  // showing the GPS accuracy radius. Only drawn when accuracy > 25m.
+  const accuracyLayerRef = useRef<L.LayerGroup | null>(null);
   const onSelectRef = useRef(onSelectVehicle);
   useEffect(() => { onSelectRef.current = onSelectVehicle; }, [onSelectVehicle]);
 
@@ -74,6 +83,7 @@ export function FleetMap({
     stopLayerRef.current = L.layerGroup().addTo(map);
     routeLayerRef.current = L.layerGroup().addTo(map);
     originDestLayerRef.current = L.layerGroup().addTo(map);
+    accuracyLayerRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
     delete (L.Icon.Default.prototype as unknown as { _getIconUrl?: unknown })._getIconUrl;
     L.Icon.Default.mergeOptions({
@@ -315,6 +325,50 @@ export function FleetMap({
       }
     }
   }, [selectedVehicleId, centerOnSelected, vehicles]);
+
+  // Draw GPS accuracy circles + raw GPS dots for buses that have poor accuracy
+  // or have been snapped to the route. This visualizes the GPS uncertainty so
+  // the user can see whether the marker is at the correct location or floating.
+  useEffect(() => {
+    const accuracyLayer = accuracyLayerRef.current;
+    if (!accuracyLayer) return;
+    accuracyLayer.clearLayers();
+
+    for (const v of vehiclesRef.current) {
+      // Accuracy circle — only draw when accuracy is poor (> 25m)
+      if (v.accuracy != null && v.accuracy > 25 && (v.status === "tracking" || v.status === "live")) {
+        const color = v.accuracy > 100 ? "#ef4444" : v.accuracy > 50 ? "#fbbf24" : "#06b6d4";
+        L.circle([v.coords.lat, v.coords.lng], {
+          radius: v.accuracy,
+          color,
+          fillColor: color,
+          fillOpacity: 0.08,
+          weight: 1,
+          opacity: 0.4,
+          dashArray: "4 4",
+        }).addTo(accuracyLayer);
+      }
+      // Raw GPS dot — drawn when the position was snapped to the route,
+      // so the user can see where the raw GPS fix was vs. the snapped position.
+      if (v.rawCoords) {
+        L.circleMarker([v.rawCoords.lat, v.rawCoords.lng], {
+          radius: 4,
+          color: "#fbbf24",
+          fillColor: "#fbbf24",
+          fillOpacity: 0.6,
+          weight: 1,
+        }).addTo(accuracyLayer);
+        // Dashed line from raw GPS to snapped position
+        L.polyline(
+          [
+            [v.rawCoords.lat, v.rawCoords.lng],
+            [v.coords.lat, v.coords.lng],
+          ],
+          { color: "#fbbf24", weight: 1, opacity: 0.5, dashArray: "3 3" }
+        ).addTo(accuracyLayer);
+      }
+    }
+  }, [vehicles]);
 
   // Draw route line + origin/destination markers + boarding stops
   useEffect(() => {

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { routes as ALL_ROUTES, routeStops, RIT_CAMPUS_COORDS, type Coord } from "@/lib/ritians/data";
 import { getRouteStopsWithCoords } from "@/lib/ritians/fleet";
+import { snapToRoute, type RouteSnapResult } from "@/lib/fleet/physics";
 import { useToast } from "@/lib/ritians/toast";
 
 interface LiveTrackingPageProps {
@@ -659,24 +660,56 @@ function DriverModePanel({
         // When sharing with real GPS, prefer the local gps state (freshest).
         // When sharing with simulated GPS, the gps state is also populated.
         // When not sharing, fall back to the route's starting coords.
-        const currentCoords: Coord = livePos?.coords
+        const rawCoords: Coord = livePos?.coords
           || (gps ? { lat: gps.latitude, lng: gps.longitude } : r.coords);
         const currentSpeed = livePos?.speed ?? (gps ? (gps.speed ?? 0) : 0);
         const currentHeading = livePos?.heading ?? (gps ? gps.heading : undefined);
         const isLive = sharing && !!livePos;
+        const currentAccuracy = livePos ? 5 : (gps?.accuracy ?? 50);
+
+        // ═══ ROAD SNAPPING ═══
+        // Snap the raw GPS position to the nearest segment of the route polyline.
+        // This prevents the bus marker from floating through buildings or across
+        // empty space when GPS accuracy is poor (e.g. ±500m as seen in the
+        // user's screen recording). The snapped position is what gets displayed
+        // on the map and sent to passengers.
+        //
+        // We only snap when sharing (real or simulated GPS is active). When
+        // previewing the route, we use the raw route coords directly.
+        let displayCoords: Coord = rawCoords;
+        let snapInfo: RouteSnapResult | null = null;
+        let isSnapped = false;
+        if (sharing) {
+          // Build the route polyline from the route's boarding stops (with
+          // interpolated coords) so we can snap the raw GPS position to it.
+          const routeStopsList = getRouteStopsWithCoords(selectedRoute);
+          const routeCoordsList: Coord[] = routeStopsList.map((s) => s.coords || r.coords);
+          if (routeCoordsList.length > 0) routeCoordsList[routeCoordsList.length - 1] = RIT_CAMPUS_COORDS;
+          snapInfo = snapToRoute(rawCoords, routeCoordsList);
+          if (snapInfo && snapInfo.deviationM < 200) {
+            // Only snap if the GPS position is within 200m of the route.
+            // If the bus has genuinely detoured (deviation > 200m), we show
+            // the raw GPS position so the dispatcher can see the actual location.
+            displayCoords = snapInfo.snappedCoords;
+            isSnapped = true;
+          }
+        }
 
         const mapVehicles: MapVehicle[] = [{
           id: selectedRoute,
           vehicleNumber: `BUS-${String(r.no).padStart(3, "0")}`,
           vehicleName: r.routeName,
           status: (sharing ? "tracking" : "idle") as "tracking" | "idle",
-          coords: currentCoords,
+          coords: displayCoords,
           speed: currentSpeed,
           heading: currentHeading ?? undefined,
           lastSeenAt: livePos ? new Date(livePos.timestamp).toISOString() : (gps ? new Date(gps.timestamp).toISOString() : new Date().toISOString()),
           routeNo: selectedRoute,
           selected: true,
-        }];
+          // Pass accuracy + raw coords to the map so it can draw an accuracy circle
+          accuracy: currentAccuracy,
+          rawCoords: isSnapped ? rawCoords : undefined,
+        } as MapVehicle & { accuracy?: number; rawCoords?: Coord }];
 
         return (
           <div className="rounded-2xl border border-[#1f2538] bg-[#10131f] p-3">
@@ -716,11 +749,33 @@ function DriverModePanel({
                 centerOnSelected={sharing}
               />
             </div>
+            {/* GPS accuracy + road-snapping status — shown below the map so the
+                driver can verify their position is being correctly pinned to the
+                road, not floating in empty space. */}
             <div className="mt-2 text-[10px] text-slate-500 flex items-center gap-3 flex-wrap">
-              <span><i className="fas fa-location-dot text-cyan-400 mr-1" />{currentCoords.lat.toFixed(5)}, {currentCoords.lng.toFixed(5)}</span>
+              <span title="Snapped position on the route (what passengers see)">
+                <i className="fas fa-location-dot text-cyan-400 mr-1" />
+                {displayCoords.lat.toFixed(5)}, {displayCoords.lng.toFixed(5)}
+              </span>
+              {isSnapped && snapInfo && (
+                <span title="GPS was snapped to the nearest road segment" className="text-emerald-400">
+                  <i className="fas fa-road mr-1" />
+                  snapped to route (off by {Math.round(snapInfo.deviationM)} m)
+                </span>
+              )}
+              {sharing && !isSnapped && (
+                <span title="Raw GPS position shown — bus may have detoured from route" className="text-amber-400">
+                  <i className="fas fa-triangle-exclamation mr-1" />
+                  raw GPS (off-route)
+                </span>
+              )}
               {sharing && <span><i className="fas fa-gauge-high text-amber-400 mr-1" />{Math.round(currentSpeed)} km/h</span>}
               {sharing && currentHeading != null && <span><i className="fas fa-compass text-slate-400 mr-1" />{Math.round(currentHeading)}°</span>}
-              {gps && <span><i className="fas fa-bullseye text-emerald-400 mr-1" />±{Math.round(gps.accuracy)} m</span>}
+              {gps && (
+                <span title="GPS accuracy radius" className={currentAccuracy > 50 ? "text-amber-400" : "text-emerald-400"}>
+                  <i className="fas fa-bullseye mr-1" />±{Math.round(currentAccuracy)} m
+                </span>
+              )}
             </div>
           </div>
         );
@@ -772,7 +827,13 @@ function RouteDetailView({
   const r = selRoute;
   const coordsList: Coord[] = stops.map((s) => s.coords || r.coords);
   if (coordsList.length > 0) coordsList[coordsList.length - 1] = RIT_CAMPUS_COORDS;
-  const currentPos = selectedBus.coords;
+  // ═══ ROAD SNAPPING (passenger side) ═══
+  // Snap the bus's raw GPS position to the route polyline so the marker
+  // always sits on a road, not floating in empty space. This matches what
+  // the driver-side map does (in DriverModePanel) so both views stay in sync.
+  const rawBusPos = selectedBus.coords;
+  const busSnap = snapToRoute(rawBusPos, coordsList);
+  const currentPos: Coord = (busSnap && busSnap.deviationM < 200) ? busSnap.snappedCoords : rawBusPos;
 
   // ─── Passenger location helpers ──────────────────────────────────────
   // Auto-detect passenger location via browser geolocation.
