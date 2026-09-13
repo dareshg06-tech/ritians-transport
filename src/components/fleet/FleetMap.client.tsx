@@ -11,6 +11,7 @@ import {
   sampleInterpolation,
   lerpCoord,
   lerpHeading,
+  haversineMeters,
   type MarkerInterpolationState,
 } from "@/lib/fleet/physics";
 
@@ -232,21 +233,33 @@ export function FleetMap({
         const currentLatLng = marker.getLatLng();
         const fromCoord: Coord = { lat: currentLatLng.lat, lng: currentLatLng.lng };
         const toCoord: Coord = v.coords;
-        // Look up previous heading for smooth rotation
-        const prevInterp = interps.get(v.id);
-        const fromHeading = prevInterp?.toHeading ?? v.heading ?? null;
-        const interp = planMarkerInterpolation(
-          fromCoord,
-          toCoord,
-          fromHeading,
-          v.heading ?? null,
-          v.speed ?? 0
-        );
-        if (interp) {
-          interps.set(v.id, interp);
-        } else if (interps.has(v.id) === false) {
-          // No movement needed — marker is essentially at target
+        const distToTarget = haversineMeters(fromCoord, toCoord);
+
+        // When the marker is close to the target (< 30m) OR the bus is
+        // stationary (speed < 1), skip interpolation and snap directly.
+        // This prevents the marker from appearing "off route" during
+        // short interpolation periods — it always sits exactly on the
+        // snapped route position.
+        if (distToTarget < 30 || (v.speed ?? 0) < 1) {
           marker.setLatLng(targetLatLng);
+          interps.delete(v.id); // cancel any in-progress interpolation
+        } else {
+          // Look up previous heading for smooth rotation
+          const prevInterp = interps.get(v.id);
+          const fromHeading = prevInterp?.toHeading ?? v.heading ?? null;
+          const interp = planMarkerInterpolation(
+            fromCoord,
+            toCoord,
+            fromHeading,
+            v.heading ?? null,
+            v.speed ?? 0
+          );
+          if (interp) {
+            interps.set(v.id, interp);
+          } else if (interps.has(v.id) === false) {
+            // No movement needed — marker is essentially at target
+            marker.setLatLng(targetLatLng);
+          }
         }
       }
 
@@ -394,10 +407,18 @@ export function FleetMap({
     const destCoords = RIT_CAMPUS_COORDS;
 
     // Draw the route line — orange dashed (like shared project: origin → stops → destination)
+    // The route polyline MUST include RIT Campus as the final point so it matches
+    // the polyline used for road-snapping in LiveTrackingModal. Without this, the
+    // bus marker (snapped to the route) would appear off the drawn polyline.
     const latlngs: L.LatLngExpression[] = stops.map((s) => {
       const c = s.coords || RIT_CAMPUS_COORDS;
       return [c.lat, c.lng];
     });
+    // Append RIT Campus as the final destination if it's not already the last stop
+    const lastStop = stops[stops.length - 1];
+    if (!lastStop || lastStop.stop !== "RIT Campus") {
+      latlngs.push([RIT_CAMPUS_COORDS.lat, RIT_CAMPUS_COORDS.lng]);
+    }
 
     // Draw the full route as an orange dashed line
     L.polyline(latlngs, {
@@ -434,6 +455,10 @@ export function FleetMap({
     });
 
     // Fit bounds to include origin, bus, and destination ONLY (not all stops)
+    // NOTE: We do NOT re-fit bounds on every vehicle update — that would
+    // cause the map to re-zoom every second as the bus moves, making the
+    // route line flicker. Bounds are fitted once when the route is first
+    // selected (showRouteForVehicleId changes).
     const selectedVehicle = vehicles.find((x) => x.id === showRouteForVehicleId);
     const busCoords = selectedVehicle ? selectedVehicle.coords : originCoords;
     const allBounds = L.latLngBounds([
@@ -452,7 +477,8 @@ export function FleetMap({
         marker.setOpacity(1); // show selected bus
       }
     }
-  }, [showRouteForVehicleId, vehicles, crossedStopNames]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showRouteForVehicleId, crossedStopNames]); // NOT vehicles — re-drawing on every vehicle update causes flicker
 
   // Restore all bus markers when no route is selected
   useEffect(() => {
