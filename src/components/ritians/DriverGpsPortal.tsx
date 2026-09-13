@@ -1,8 +1,22 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { routes, routeStops, RIT_CAMPUS_COORDS, type Coord } from "@/lib/ritians/data";
+import { getRouteStopsWithCoords } from "@/lib/ritians/fleet";
+import { haversineMeters, snapToRoute } from "@/lib/fleet/physics";
 import { useToast } from "@/lib/ritians/toast";
+
+// Load FleetMap client-side only
+const FleetMap = dynamic(() => import("../fleet/FleetMap.client").then((m) => m.FleetMap), {
+  ssr: false,
+  loading: () => (
+    <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b", fontSize: 12 }}>
+      <i className="fas fa-spinner fa-spin" style={{ marginRight: 8 }} /> Loading map…
+    </div>
+  ),
+}) as typeof import("../fleet/FleetMap.client").FleetMap;
+type MapVehicle = import("../fleet/FleetMap.client").MapVehicle;
 
 interface DriverGpsProps {
   onBack: () => void;
@@ -394,8 +408,8 @@ export function DriverGpsPortal({ onBack }: DriverGpsProps) {
                 </div>
                 <div className="rt-gps-data-row">
                   <span className="rt-gps-data-label">Speed</span>
-                  <span className={`rt-gps-data-value ${gps ? (gps.speed > 0 ? "orange" : "idle") : "idle"}`}>
-                    {gps ? `${Math.round(gps.speed)} km/h` : "—"}
+                  <span className={`rt-gps-data-value ${gps ? ((gps.speed ?? 0) > 0 ? "orange" : "idle") : "idle"}`}>
+                    {gps ? `${Math.round(gps.speed ?? 0)} km/h` : "—"}
                   </span>
                 </div>
                 <div className="rt-gps-data-row">
@@ -458,11 +472,445 @@ export function DriverGpsPortal({ onBack }: DriverGpsProps) {
             </div>
           )}
 
+          {/* ═══ LIVE MAP + BOARDING POINTS ═══
+              When the driver is sharing location, show:
+              1. A live map with start (A) and end (B) points + bus marker
+              2. Boarding points list with crossed/not-crossed status + Record Passengers button
+              The bus marker is pinned by lat/lng and updates every 2 seconds. */}
+          {sharing && selectedRoute && vehicle && (
+            <DriverLiveMap
+              routeNo={selectedRoute}
+              vehicleNumber={`BUS-${String(vehicle.no).padStart(3, "0")}`}
+              vehicleName={vehicle.routeName}
+              gps={gps}
+              usingSimulated={usingSimulated}
+              onBack={onBack}
+            />
+          )}
+
           {/* Back button */}
           <button className="rt-btn rt-btn-ghost rt-btn-sm rt-btn-full" style={{ marginTop: 14 }} onClick={onBack}>
             <i className="fas fa-arrow-left" /> Back to Dashboard
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// DriverLiveMap — shows the live map with start (A) and end (B) points +
+// bus marker pinned by lat/lng. Updates every 2 seconds when the driver
+// shares their GPS position. Also shows the boarding points list with
+// crossed/not-crossed status + Record Passengers button.
+// ============================================================================
+interface DriverGPSData {
+  latitude: number;
+  longitude: number;
+  accuracy: number;
+  speed: number | null;
+  heading: number | null;
+  altitude: number | null;
+  timestamp: number;
+}
+
+function DriverLiveMap({
+  routeNo,
+  vehicleNumber,
+  vehicleName,
+  gps,
+  usingSimulated,
+}: {
+  routeNo: string;
+  vehicleNumber: string;
+  vehicleName: string;
+  gps: DriverGPSData | null;
+  usingSimulated: boolean;
+  onBack: () => void;
+}) {
+  const routeInfo = routes.find((r) => r.routeNo === routeNo);
+  const stops = getRouteStopsWithCoords(routeNo);
+
+  // Build the route polyline
+  const routeCoords: Coord[] = stops.map((s) => s.coords || { lat: 0, lng: 0 });
+  if (routeCoords.length > 0) routeCoords[routeCoords.length - 1] = RIT_CAMPUS_COORDS;
+
+  // Current bus position from GPS
+  const busCoords: Coord = gps
+    ? { lat: gps.latitude, lng: gps.longitude }
+    : (routeInfo?.coords || { lat: 13.0827, lng: 80.2707 });
+
+  // Snap to route
+  const snap = snapToRoute(busCoords, routeCoords);
+  const displayCoords: Coord = (snap && snap.deviationM < 200) ? snap.snappedCoords : busCoords;
+
+  // Speed and heading
+  const speed = gps?.speed ?? 0;
+  const heading = gps?.heading ?? undefined;
+
+  const mapVehicles: MapVehicle[] = [{
+    id: routeNo,
+    vehicleNumber,
+    vehicleName,
+    status: "tracking" as const,
+    coords: displayCoords,
+    speed,
+    heading,
+    lastSeenAt: gps ? new Date(gps.timestamp).toISOString() : new Date().toISOString(),
+    routeNo,
+    selected: true,
+    accuracy: gps?.accuracy,
+    rawCoords: (snap && snap.deviationM < 200) ? busCoords : undefined,
+  }];
+
+  // Compute distance to campus
+  const distToCampusKm = haversineMeters(displayCoords, RIT_CAMPUS_COORDS) / 1000;
+  const etaMin = speed > 1 ? Math.max(1, Math.round(distToCampusKm / (speed / 60))) : Infinity;
+
+  return (
+    <div style={{ marginTop: 18 }}>
+      {/* ── Live Map ── */}
+      <div style={{
+        padding: 12, borderRadius: 12, background: "#13161c",
+        border: "1px solid #1e2330", marginBottom: 14,
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#06b6d4", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            <i className="fas fa-map" /> Live Map · Start → End
+          </div>
+          <span style={{ fontSize: 10, color: "#10b981", display: "flex", alignItems: "center", gap: 4 }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#10b981", boxShadow: "0 0 6px #10b981" }} className="animate-pulse" />
+            Updates every 2s
+          </span>
+        </div>
+        <div style={{ height: 320, borderRadius: 10, overflow: "hidden", position: "relative" }}>
+          <FleetMap
+            vehicles={mapVehicles}
+            selectedVehicleId={routeNo}
+            onSelectVehicle={() => {}}
+            showRouteForVehicleId={routeNo}
+            height="100%"
+            centerOnSelected={true}
+          />
+        </div>
+        <div style={{ marginTop: 8, display: "flex", gap: 16, fontSize: 10, color: "#64748b", flexWrap: "wrap" }}>
+          <span><i className="fas fa-circle" style={{ color: "#f59e0b", fontSize: 7, marginRight: 4 }} /> Start (A): {stops[0]?.stop || routeInfo?.routeName || "—"}</span>
+          <span><i className="fas fa-circle" style={{ color: "#ef4444", fontSize: 7, marginRight: 4 }} /> End (B): RIT Campus</span>
+          <span><i className="fas fa-bus" style={{ color: "#10b981", fontSize: 9, marginRight: 4 }} /> Bus: {displayCoords.lat.toFixed(5)}, {displayCoords.lng.toFixed(5)}</span>
+          <span><i className="fas fa-gauge-high" style={{ color: "#fbbf24", fontSize: 9, marginRight: 4 }} /> {Math.round(speed)} km/h</span>
+          {speed < 1 && <span style={{ color: "#fbbf24", fontWeight: 700 }}>🛑 NOT MOVING</span>}
+        </div>
+      </div>
+
+      {/* ── Trip Stats ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 14 }}>
+        <div style={{ padding: 10, borderRadius: 10, background: "#13161c", border: "1px solid #1e2330" }}>
+          <div style={{ fontSize: 9, color: "#06b6d4", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Distance</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>{distToCampusKm.toFixed(1)} <span style={{ fontSize: 10, color: "#64748b" }}>km to campus</span></div>
+        </div>
+        <div style={{ padding: 10, borderRadius: 10, background: "#13161c", border: "1px solid #1e2330" }}>
+          <div style={{ fontSize: 9, color: "#10b981", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>ETA</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>
+            {etaMin === Infinity ? "—" : etaMin > 60 ? `${Math.floor(etaMin / 60)}h ${etaMin % 60}m` : `${etaMin} min`}
+          </div>
+        </div>
+        <div style={{ padding: 10, borderRadius: 10, background: "#13161c", border: "1px solid #1e2330" }}>
+          <div style={{ fontSize: 9, color: "#fbbf24", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Provider</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: usingSimulated ? "#fbbf24" : "#10b981" }}>
+            {usingSimulated ? "SIMULATED" : "GPS"}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Boarding Points List ── */}
+      {stops.length > 0 && (
+        <DriverBoardingPoints
+          routeNo={routeNo}
+          busCoords={displayCoords}
+          stops={stops}
+        />
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// DriverBoardingPoints — shows each boarding point with crossed/not-crossed
+// status, scheduled time, and a Record Passengers button.
+// ============================================================================
+function DriverBoardingPoints({
+  routeNo,
+  busCoords,
+  stops,
+}: {
+  routeNo: string;
+  busCoords: Coord;
+  stops: { stop: string; time: string; coords?: Coord }[];
+}) {
+  const distBusToEnd = haversineMeters(busCoords, RIT_CAMPUS_COORDS);
+  const currentStopIdx = stops.findIndex((s) => {
+    if (!s.coords) return false;
+    return haversineMeters(busCoords, s.coords) < 200;
+  });
+  const crossedCount = stops.filter((s) => {
+    if (!s.coords) return false;
+    return distBusToEnd < haversineMeters(s.coords, RIT_CAMPUS_COORDS) - 30;
+  }).length;
+
+  return (
+    <div style={{
+      padding: 14, borderRadius: 12, background: "#13161c",
+      border: "1px solid #1e2330",
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div style={{ color: "#f59e0b", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center", gap: 6 }}>
+          <i className="fas fa-route" /> Boarding Points — {routeNo}
+        </div>
+        <div style={{ fontSize: 10, color: "#64748b" }}>{crossedCount} / {stops.length} crossed</div>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {stops.map((s, i) => {
+          const stopCoords = s.coords || { lat: 0, lng: 0 };
+          const distStopToEnd = haversineMeters(stopCoords, RIT_CAMPUS_COORDS);
+          const isCrossed = distBusToEnd < distStopToEnd - 30;
+          const isCurrent = i === currentStopIdx;
+          const isFinal = i === stops.length - 1;
+
+          return (
+            <DriverBoardingPointRow
+              key={i}
+              index={i}
+              stop={s}
+              isCrossed={isCrossed}
+              isCurrent={isCurrent}
+              isFinal={isFinal}
+              routeNo={routeNo}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// DriverBoardingPointRow — a single boarding point row
+// ============================================================================
+function DriverBoardingPointRow({
+  index,
+  stop,
+  isCrossed,
+  isCurrent,
+  isFinal,
+  routeNo,
+}: {
+  index: number;
+  stop: { stop: string; time: string };
+  isCrossed: boolean;
+  isCurrent: boolean;
+  isFinal: boolean;
+  routeNo: string;
+}) {
+  const [showPassengerModal, setShowPassengerModal] = useState(false);
+
+  const statusLabel = isCrossed ? "CROSSED" : isCurrent ? "HERE NOW" : isFinal ? "FINAL" : "UPCOMING";
+  const statusColor = isCrossed ? "#10b981" : isCurrent ? "#06b6d4" : isFinal ? "#f59e0b" : "#64748b";
+  const statusBg = isCrossed ? "rgba(16,185,129,0.15)" : isCurrent ? "rgba(6,182,212,0.15)" : isFinal ? "rgba(245,158,11,0.15)" : "rgba(100,116,139,0.1)";
+
+  return (
+    <>
+      <div
+        style={{
+          display: "flex", alignItems: "center", gap: 8, padding: "6px 10px",
+          borderRadius: 6,
+          background: isCurrent ? "rgba(6,182,212,0.08)" : isCrossed ? "rgba(16,185,129,0.04)" : "transparent",
+          border: isCurrent ? "1px solid rgba(6,182,212,0.3)" : "1px solid transparent",
+        }}
+      >
+        <div style={{
+          width: 16, height: 16, borderRadius: "50%", flexShrink: 0,
+          background: isCrossed ? "#10b981" : isCurrent ? "#06b6d4" : isFinal ? "#f59e0b" : "#1e2330",
+          border: isCurrent ? "2px solid #06b6d4" : "none",
+          boxShadow: isCrossed ? "0 0 6px #10b981" : isCurrent ? "0 0 8px #06b6d4" : "none",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          {isCrossed && <i className="fas fa-check" style={{ fontSize: 7, color: "#fff" }} />}
+          {isCurrent && <div style={{ width: 4, height: 4, borderRadius: "50%", background: "#fff" }} />}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <span style={{
+            fontSize: 12, fontWeight: isCurrent ? 700 : 500,
+            color: isCrossed ? "#10b981" : isCurrent ? "#06b6d4" : isFinal ? "#f59e0b" : "#94a3b8",
+          }}>
+            {index + 1}. {stop.stop}
+            {isFinal && <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, color: "#f59e0b", padding: "1px 5px", borderRadius: 99, background: "rgba(245,158,11,0.1)" }}>FINAL</span>}
+          </span>
+          <span style={{ fontSize: 10, color: "#64748b", marginLeft: 8, fontFamily: "monospace" }}>{stop.time}</span>
+          {isCrossed && <span style={{ fontSize: 10, color: "#10b981", marginLeft: 8 }}>· Crossed</span>}
+          {isCurrent && <span style={{ fontSize: 10, color: "#06b6d4", marginLeft: 8 }}>· Bus is here now</span>}
+        </div>
+        <span style={{
+          fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 99,
+          color: statusColor, background: statusBg, border: `1px solid ${statusColor}40`,
+        }}>
+          {statusLabel}
+        </span>
+        {(isCrossed || isCurrent) && (
+          <button
+            onClick={() => setShowPassengerModal(true)}
+            style={{
+              fontSize: 9, fontWeight: 600, padding: "3px 8px", borderRadius: 6,
+              background: "rgba(251,191,36,0.15)", border: "1px solid rgba(251,191,36,0.3)",
+              color: "#fbbf24", cursor: "pointer",
+            }}
+            title="Record passengers boarding/alighting at this stop"
+          >
+            <i className="fas fa-user-plus" style={{ fontSize: 8, marginRight: 3 }} />
+            Record
+          </button>
+        )}
+      </div>
+
+      {showPassengerModal && (
+        <DriverPassengerModal
+          stopName={stop.stop}
+          routeNo={routeNo}
+          onClose={() => setShowPassengerModal(false)}
+        />
+      )}
+    </>
+  );
+}
+
+// ============================================================================
+// DriverPassengerModal — record how many passengers boarded/alighted/waiting
+// ============================================================================
+function DriverPassengerModal({
+  stopName,
+  routeNo,
+  onClose,
+}: {
+  stopName: string;
+  routeNo: string;
+  onClose: () => void;
+}) {
+  const [boarded, setBoarded] = useState(0);
+  const [alighted, setAlighted] = useState(0);
+  const [waiting, setWaiting] = useState(0);
+  const [saved, setSaved] = useState(false);
+
+  const handleSave = () => {
+    console.log("Passenger count saved:", { stopName, routeNo, boarded, alighted, waiting });
+    setSaved(true);
+    setTimeout(onClose, 1500);
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed", inset: 0, zIndex: 300,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)",
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          background: "#10131f", border: "1px solid #1f2538", borderRadius: 14,
+          padding: 20, maxWidth: 340, width: "calc(100% - 32px)", margin: "0 16px",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {saved ? (
+          <div style={{ textAlign: "center", padding: "32px 0" }}>
+            <div style={{
+              width: 48, height: 48, borderRadius: "50%",
+              background: "rgba(16,185,129,0.15)", display: "flex",
+              alignItems: "center", justifyContent: "center", margin: "0 auto 12px",
+            }}>
+              <i className="fas fa-check" style={{ fontSize: 24, color: "#10b981" }} />
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#10b981" }}>Passenger count saved!</div>
+            <div style={{ fontSize: 11, color: "#64748b", marginTop: 4 }}>{stopName} · {routeNo}</div>
+          </div>
+        ) : (
+          <>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#fbbf24", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 4 }}>
+              <i className="fas fa-users" style={{ marginRight: 4 }} /> Passenger Count
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#fff", marginBottom: 16 }}>
+              Record passengers at <span style={{ color: "#fbbf24" }}>{stopName}</span>
+            </div>
+
+            <DriverCounterRow label="Boarded (got on)" icon="🟢" value={boarded} onChange={setBoarded} />
+            <DriverCounterRow label="Alighted (got off)" icon="🟠" value={alighted} onChange={setAlighted} />
+            <DriverCounterRow label="Waiting at stop" icon="🔵" value={waiting} onChange={setWaiting} />
+
+            <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
+              <button
+                onClick={onClose}
+                style={{
+                  flex: 1, padding: "10px 0", borderRadius: 8,
+                  border: "1px solid #1f2538", background: "#0a0d18",
+                  color: "#64748b", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                }}
+              >
+                CANCEL
+              </button>
+              <button
+                onClick={handleSave}
+                style={{
+                  flex: 1, padding: "10px 0", borderRadius: 8,
+                  background: "linear-gradient(135deg, #f59e0b, #d97706)", color: "#fff",
+                  fontSize: 12, fontWeight: 600, cursor: "pointer",
+                }}
+              >
+                SAVE
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DriverCounterRow({
+  label,
+  icon,
+  value,
+  onChange,
+}: {
+  label: string;
+  icon: string;
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid #1a2032" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 16 }}>{icon}</span>
+        <span style={{ fontSize: 12, color: "#94a3b8" }}>{label}</span>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <button
+          onClick={() => onChange(Math.max(0, value - 1))}
+          style={{
+            width: 28, height: 28, borderRadius: 8,
+            background: "#1a2032", border: "1px solid #2a3252", color: "#94a3b8",
+            fontSize: 14, fontWeight: 700, cursor: "pointer",
+          }}
+        >−</button>
+        <span style={{ fontSize: 16, fontWeight: 700, color: "#fff", width: 32, textAlign: "center" }}>{value}</span>
+        <button
+          onClick={() => onChange(value + 1)}
+          style={{
+            width: 28, height: 28, borderRadius: 8,
+            background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.3)", color: "#10b981",
+            fontSize: 14, fontWeight: 700, cursor: "pointer",
+          }}
+        >+</button>
       </div>
     </div>
   );

@@ -5,11 +5,12 @@ interface HeroProps {
   earliest: string;
   latest: string;
   parkingCount: number;
+  onLiveTracking: () => void;
   onDriverLogin: () => void;
   onFaceRegister: () => void;
 }
 
-export function Hero({ total, earliest, latest, parkingCount, onDriverLogin, onFaceRegister }: HeroProps) {
+export function Hero({ total, earliest, latest, parkingCount, onLiveTracking, onDriverLogin, onFaceRegister }: HeroProps) {
   return (
     <section className="rt-hero">
       <div className="rt-hero-grid">
@@ -25,6 +26,11 @@ export function Hero({ total, earliest, latest, parkingCount, onDriverLogin, onF
             <span className="rt-hero-tag"><i className="fas fa-route"></i> Detailed stop listings</span>
           </div>
           <div className="rt-hero-actions">
+            <button className="rt-hero-cta rt-hero-cta-primary" onClick={onLiveTracking}>
+              <i className="fas fa-satellite-dish" />
+              <span>Live Tracking</span>
+              <i className="fas fa-arrow-right" style={{ fontSize: 10 }} />
+            </button>
             <button className="rt-hero-cta rt-hero-cta-secondary" onClick={onDriverLogin}>
               <i className="fas fa-location-arrow" />
               <span>Driver Login</span>

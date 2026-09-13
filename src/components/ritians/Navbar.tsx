@@ -76,6 +76,11 @@ export function Navbar({
             >
               <i className="fas fa-id-card" /><span>Driver</span>
             </button>
+            {onOpenTracking && (
+              <button className="rt-tab-btn" onClick={onOpenTracking} title="Live Tracking — see active buses">
+                <i className="fas fa-satellite-dish" /><span>Live Tracking</span>
+              </button>
+            )}
             <button className="rt-tab-btn driver-ext" onClick={onOpenDriverGps} title="Open Driver GPS Portal">
               <i className="fas fa-location-arrow" /><span>Driver GPS</span>
             </button>
