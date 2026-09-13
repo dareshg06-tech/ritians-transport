@@ -64,6 +64,8 @@ export function DriverGpsPortal({ onBack }: DriverGpsProps) {
   const [tripStartTime, setTripStartTime] = useState<number | null>(null);
   const [usingSimulated, setUsingSimulated] = useState(false);
   const [tick, setTick] = useState(0);
+  // Bus count — how many buses are currently sharing location (polled from /api/vehicles)
+  const [activeBusCount, setActiveBusCount] = useState(0);
   const watchIdRef = useRef<number | null>(null);
   const simIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const segIdxRef = useRef(0);
@@ -72,6 +74,27 @@ export function DriverGpsPortal({ onBack }: DriverGpsProps) {
   const vehicle = routes.find((r) => r.routeNo === selectedRoute);
   // The actual DB vehicle ID for the selected route
   const dbVehicleId = routeToVehicleId[selectedRoute] || null;
+
+  // Poll /api/vehicles every 2s to count active buses (lastSeenAt < 60s ago).
+  // This drives the bus count badge in the header — when the driver starts
+  // sharing, their bus is published and the count increments.
+  useEffect(() => {
+    const fetchActiveCount = async () => {
+      try {
+        const res = await fetch("/api/vehicles");
+        const data = await res.json();
+        const vehicles = data.vehicles || [];
+        const now = Date.now();
+        const active = vehicles.filter((v: { lastSeenAt: string | null; status: string }) =>
+          v.lastSeenAt && (now - new Date(v.lastSeenAt).getTime()) < 60000
+        ).length;
+        setActiveBusCount(active);
+      } catch (_) {}
+    };
+    fetchActiveCount();
+    const id = setInterval(fetchActiveCount, 2000);
+    return () => clearInterval(id);
+  }, []);
 
   // Helper: POST location to backend with the correct DB vehicle ID
   const postLocation = (data: GPSData, isSim: boolean) => {
@@ -88,6 +111,7 @@ export function DriverGpsPortal({ onBack }: DriverGpsProps) {
         heading: data.heading,
         altitude: data.altitude,
         isSimulated: isSim,
+        timestamp: new Date(data.timestamp).toISOString(),
       }),
     }).catch(() => {});
   };
@@ -251,6 +275,28 @@ export function DriverGpsPortal({ onBack }: DriverGpsProps) {
         <button className="rt-gps-nav-btn" onClick={onBack}>
           <i className="fas fa-arrow-left" /> Back to Home
         </button>
+        {/* Bus count badge — shows how many buses are currently sharing location.
+            When the driver clicks Start Sharing, their bus is published and
+            the count increments. */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 6,
+          padding: "6px 14px", borderRadius: 99,
+          background: activeBusCount > 0 ? "rgba(16,185,129,0.15)" : "rgba(100,116,139,0.1)",
+          border: `1px solid ${activeBusCount > 0 ? "rgba(16,185,129,0.4)" : "rgba(100,116,139,0.2)"}`,
+          color: activeBusCount > 0 ? "#10b981" : "#64748b",
+          fontSize: 12, fontWeight: 700,
+        }}>
+          <i className="fas fa-bus" style={{ fontSize: 11 }} />
+          {activeBusCount} {activeBusCount === 1 ? "bus" : "buses"} live
+          {activeBusCount > 0 && (
+            <span style={{
+              width: 6, height: 6, borderRadius: "50%",
+              background: "#10b981", marginLeft: 2,
+              animation: "rtPulse 2s infinite",
+              boxShadow: "0 0 6px #10b981",
+            }} />
+          )}
+        </div>
       </div>
 
       <div className="rt-gps-card">

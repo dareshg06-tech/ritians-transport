@@ -76,7 +76,12 @@ export async function POST(req: NextRequest) {
       provider,
     };
 
-    const anomaly = validateGpsFix(fix, prevForValidation);
+    // Skip anomaly detection if the previous fix is very old (>2 minutes).
+    // This happens when a driver starts a new session after a gap —
+    // the first fix will naturally be far from the last recorded position,
+    // but that's not a teleport, it's just a new trip starting.
+    const skipAnomaly = prevLocation && (Date.now() - prevLocation.recordedAt.getTime() > 2 * 60 * 1000);
+    const anomaly = skipAnomaly ? null : validateGpsFix(fix, prevForValidation);
 
     // --- If the anomaly is a hard reject, log it and drop the fix ---
     if (anomaly?.reject) {
