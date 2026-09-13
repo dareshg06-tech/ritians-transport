@@ -50,10 +50,10 @@ export function AdminView({
       return;
     }
     if (editIdx !== null) {
-      onUpdateRoute(editIdx, { no: routes[editIdx].no, routeNo, routeName, timing, start });
+      onUpdateRoute(editIdx, { no: routes[editIdx].no, routeNo, routeName, timing, start, coords: routes[editIdx].coords });
       show("Route updated");
     } else {
-      onAddRoute({ no: routes.length + 1, routeNo, routeName, timing, start });
+      onAddRoute({ no: routes.length + 1, routeNo, routeName, timing, start, coords: { lat: 13.0827, lng: 80.2707 } });
       show("Route added");
     }
     resetForm();

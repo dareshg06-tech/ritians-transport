@@ -16,7 +16,7 @@ const FleetMap = dynamic(() => import("./FleetMap.client").then((m) => m.FleetMa
 }) as typeof import("./FleetMap.client").FleetMap;
 type MapVehicle = import("./FleetMap.client").MapVehicle;
 
-interface Vehicle {
+export interface Vehicle {
   id: string;
   vehicleNumber: string;
   vehicleName: string;
