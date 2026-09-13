@@ -18,14 +18,12 @@ interface NavbarProps {
 export function Navbar({
   activeTab, onTabClick, onOpenTracking, onOpenDriverGps, onOpenPhysicsDebug, viewMode, onToggleView,
 }: NavbarProps) {
-  // onOpenTracking is no longer used — the "Live Tracking" navbar button was removed
-  // because the feature wasn't working correctly. The prop is kept as optional
-  // for backward compatibility but does nothing.
-  void onOpenTracking;
   const { session, logout } = useAuth();
+  const [mounted, setMounted] = useState(false);
   const [clock, setClock] = useState("--:--:--");
 
   useEffect(() => {
+    setMounted(true);
     const tick = () => {
       const n = new Date();
       setClock(
@@ -37,7 +35,11 @@ export function Navbar({
     return () => clearInterval(id);
   }, []);
 
-  const avatarInitial = (session?.displayName || "S").charAt(0).toUpperCase();
+  // Use mounted flag to avoid hydration mismatch — the clock and session
+  // are only available on the client, so we render a placeholder on SSR.
+  const avatarInitial = mounted ? (session?.displayName || "S").charAt(0).toUpperCase() : "S";
+  const displayName = mounted ? (session?.displayName || "Student") : "Student";
+  const clockDisplay = mounted ? clock : "--:--:--";
 
   return (
     <>
@@ -90,10 +92,10 @@ export function Navbar({
               </button>
             )}
           </div>
-          <div className="rt-clock">{clock}</div>
+          <div className="rt-clock">{clockDisplay}</div>
           <div className="rt-auth-chip">
             <div className="avatar">{avatarInitial}</div>
-            <span>{session?.displayName || "Student"}</span>
+            <span>{displayName}</span>
             <button onClick={logout} title="Logout" aria-label="Logout">
               <i className="fas fa-right-from-bracket" />
             </button>

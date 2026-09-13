@@ -166,7 +166,7 @@ export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
         </div>
       </header>
 
-      {/* Bus list — full width, no map */}
+      {/* Bus list — full width */}
       {loading ? (
         <div className="flex-1 flex items-center justify-center text-slate-500">
           <div className="text-center">
@@ -189,7 +189,7 @@ export function LiveTrackingPage({ onBack }: LiveTrackingPageProps) {
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto">
-          <div className="max-w-2xl mx-auto px-4 py-4">
+          <div className="w-full px-4 py-4">
             <div className="text-[10px] uppercase tracking-widest text-emerald-400 font-bold mb-3 px-1">
               {activeCount > 0
                 ? `${activeCount} live · ${offlineCount} offline`
@@ -312,7 +312,7 @@ function BusDetailModal({ bus, onClose }: { bus: ActiveBus; onClose: () => void 
     <div className="fixed inset-0 z-[200] bg-[#0a0d18] flex flex-col">
       {/* Header */}
       <header className="sticky top-0 z-40 bg-[#0a0d18]/95 backdrop-blur border-b border-[#1f2538] flex-shrink-0">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+        <div className="w-full px-4 py-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={onClose}
@@ -342,7 +342,7 @@ function BusDetailModal({ bus, onClose }: { bus: ActiveBus; onClose: () => void 
       </header>
 
       {/* Stats */}
-      <div className="max-w-5xl w-full mx-auto px-4 pt-4">
+      <div className="w-full px-4 pt-4">
         <div className="grid grid-cols-3 gap-2">
           <div className="rounded-xl border border-[#1f2538] bg-[#10131f] p-3">
             <div className="text-[9px] uppercase tracking-widest text-cyan-400 font-bold mb-1 flex items-center gap-1">
@@ -381,7 +381,7 @@ function BusDetailModal({ bus, onClose }: { bus: ActiveBus; onClose: () => void 
       </div>
 
       {/* Live Map with start (A) and end (B) points */}
-      <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-4 overflow-y-auto">
+      <main className="flex-1 w-full px-4 py-4 overflow-y-auto">
         <div className="rounded-2xl border border-[#1f2538] bg-[#10131f] p-3 mb-4">
           <div className="flex items-center justify-between mb-2">
             <div className="text-[10px] uppercase tracking-widest text-cyan-400 font-bold flex items-center gap-1.5">
