@@ -9,7 +9,6 @@ import { DriverView } from "./DriverView";
 import { ReturnTripView } from "./ReturnTripView";
 import { StopsModal } from "./StopsModal";
 import { LoginModals } from "./LoginModals";
-import { LiveTrackingPage } from "./LiveTrackingModal";
 import { DriverGpsPortal } from "./DriverGpsPortal";
 import { AttendanceDashboard } from "./AttendanceDashboard";
 import { NotificationDashboard } from "./NotificationDashboard";
@@ -24,7 +23,6 @@ import { useAuth } from "@/lib/ritians/auth";
 type Tab = "student" | "admin" | "driver" | "return";
 type ModalWhich = "admin" | "driver" | null;
 type FullPage =
-  | "tracking"
   | "driverGps"
   | "faceRegister"
   | "attendance"
@@ -126,28 +124,18 @@ export function Dashboard() {
   };
 
   // Render full-page views if active
-  if (fullPage === "tracking") {
-    return (
-      <>
-        <LiveTrackingPage onBack={() => setFullPage(null)} />
-        <Chatbot />
-      </>
-    );
-  }
   if (fullPage === "driverGps") {
     return (
       <>
         <Navbar
           activeTab={tab}
           onTabClick={(t) => { setFullPage(null); setTab(t); }}
-          onOpenTracking={() => setFullPage("tracking")}
           onOpenDriverGps={() => setFullPage("driverGps")}
           viewMode={viewMode}
           onToggleView={() => setViewMode((v) => (v === "desktop" ? "mobile" : "desktop"))}
         />
         <DriverGpsPortal
           onBack={() => setFullPage(null)}
-          onOpenTracking={() => setFullPage("tracking")}
         />
         <Chatbot />
       </>
@@ -159,7 +147,6 @@ export function Dashboard() {
         <Navbar
           activeTab={tab}
           onTabClick={(t) => { setFullPage(null); setTab(t); }}
-          onOpenTracking={() => setFullPage("tracking")}
           onOpenDriverGps={() => setFullPage("driverGps")}
           viewMode={viewMode}
           onToggleView={() => setViewMode((v) => (v === "desktop" ? "mobile" : "desktop"))}
@@ -175,7 +162,6 @@ export function Dashboard() {
         <Navbar
           activeTab={tab}
           onTabClick={(t) => { setFullPage(null); setTab(t); }}
-          onOpenTracking={() => setFullPage("tracking")}
           onOpenDriverGps={() => setFullPage("driverGps")}
           viewMode={viewMode}
           onToggleView={() => setViewMode((v) => (v === "desktop" ? "mobile" : "desktop"))}
@@ -191,7 +177,6 @@ export function Dashboard() {
         <Navbar
           activeTab={tab}
           onTabClick={(t) => { setFullPage(null); setTab(t); }}
-          onOpenTracking={() => setFullPage("tracking")}
           onOpenDriverGps={() => setFullPage("driverGps")}
           viewMode={viewMode}
           onToggleView={() => setViewMode((v) => (v === "desktop" ? "mobile" : "desktop"))}
@@ -207,7 +192,6 @@ export function Dashboard() {
         <Navbar
           activeTab={tab}
           onTabClick={(t) => { setFullPage(null); setTab(t); }}
-          onOpenTracking={() => setFullPage("tracking")}
           onOpenDriverGps={() => setFullPage("driverGps")}
           viewMode={viewMode}
           onToggleView={() => setViewMode((v) => (v === "desktop" ? "mobile" : "desktop"))}
@@ -231,7 +215,6 @@ export function Dashboard() {
       <Navbar
         activeTab={tab}
         onTabClick={onTabClick}
-        onOpenTracking={() => setFullPage("tracking")}
         onOpenDriverGps={() => setFullPage("driverGps")}
         onOpenPhysicsDebug={() => setFullPage("physicsDebug")}
         viewMode={viewMode}
@@ -243,7 +226,6 @@ export function Dashboard() {
         earliest={stats.earliest}
         latest={stats.latest}
         parkingCount={parkingCount}
-        onLiveTracking={() => setFullPage("tracking")}
         onDriverLogin={() => onTabClick("driver")}
         onFaceRegister={() => setFullPage("faceRegister")}
       />

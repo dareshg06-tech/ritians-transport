@@ -8,7 +8,7 @@ export type ViewMode = "desktop" | "mobile";
 interface NavbarProps {
   activeTab: "student" | "admin" | "driver" | "return";
   onTabClick: (tab: "student" | "admin" | "driver" | "return") => void;
-  onOpenTracking: () => void;
+  onOpenTracking?: () => void;
   onOpenDriverGps: () => void;
   onOpenPhysicsDebug?: () => void;
   viewMode: ViewMode;
@@ -18,6 +18,10 @@ interface NavbarProps {
 export function Navbar({
   activeTab, onTabClick, onOpenTracking, onOpenDriverGps, onOpenPhysicsDebug, viewMode, onToggleView,
 }: NavbarProps) {
+  // onOpenTracking is no longer used — the "Live Tracking" navbar button was removed
+  // because the feature wasn't working correctly. The prop is kept as optional
+  // for backward compatibility but does nothing.
+  void onOpenTracking;
   const { session, logout } = useAuth();
   const [clock, setClock] = useState("--:--:--");
 
@@ -71,9 +75,6 @@ export function Navbar({
               onClick={() => onTabClick("driver")}
             >
               <i className="fas fa-id-card" /><span>Driver</span>
-            </button>
-            <button className="rt-tab-btn" onClick={onOpenTracking}>
-              <i className="fas fa-satellite-dish" /><span>Live Tracking</span>
             </button>
             <button className="rt-tab-btn driver-ext" onClick={onOpenDriverGps} title="Open Driver GPS Portal">
               <i className="fas fa-location-arrow" /><span>Driver GPS</span>

@@ -6,7 +6,7 @@ import { useToast } from "@/lib/ritians/toast";
 
 interface DriverGpsProps {
   onBack: () => void;
-  onOpenTracking: () => void;
+  onOpenTracking?: () => void;
 }
 
 interface GPSData {
@@ -37,7 +37,8 @@ function useVehicleIdMap() {
   return routeToVehicleId;
 }
 
-export function DriverGpsPortal({ onBack, onOpenTracking }: DriverGpsProps) {
+export function DriverGpsPortal({ onBack }: DriverGpsProps) {
+  // onOpenTracking removed — Live Tracking feature was removed because it wasn't working correctly
   const { show } = useToast();
   const routeToVehicleId = useVehicleIdMap();
   const [selectedRoute, setSelectedRoute] = useState("");
@@ -235,9 +236,6 @@ export function DriverGpsPortal({ onBack, onOpenTracking }: DriverGpsProps) {
       <div className="rt-gps-nav">
         <button className="rt-gps-nav-btn" onClick={onBack}>
           <i className="fas fa-arrow-left" /> Back to Home
-        </button>
-        <button className={`rt-gps-nav-btn ${sharing ? "active" : ""}`} onClick={onOpenTracking}>
-          <i className="fas fa-satellite-dish" /> Live Tracking
         </button>
       </div>
 
