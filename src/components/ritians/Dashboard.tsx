@@ -16,6 +16,7 @@ import { NotificationDashboard } from "./NotificationDashboard";
 import { FeedbackDashboard } from "./FeedbackDashboard";
 import { FaceRegister } from "./FaceRegister";
 import { Chatbot } from "./Chatbot";
+import { AdminDebugPanel } from "../fleet/AdminDebugPanel";
 import { routes as initialRoutes, parseTime } from "@/lib/ritians/data";
 import type { Route } from "@/lib/ritians/data";
 import { useAuth } from "@/lib/ritians/auth";
@@ -29,6 +30,7 @@ type FullPage =
   | "attendance"
   | "notification"
   | "feedback"
+  | "physicsDebug"
   | null;
 
 const PARKING_KEY = "ritians_driver_parking_v1";
@@ -215,6 +217,14 @@ export function Dashboard() {
       </>
     );
   }
+  if (fullPage === "physicsDebug") {
+    return (
+      <>
+        <AdminDebugPanel onBack={() => setFullPage(null)} />
+        <Chatbot />
+      </>
+    );
+  }
 
   return (
     <>
@@ -223,6 +233,7 @@ export function Dashboard() {
         onTabClick={onTabClick}
         onOpenTracking={() => setFullPage("tracking")}
         onOpenDriverGps={() => setFullPage("driverGps")}
+        onOpenPhysicsDebug={() => setFullPage("physicsDebug")}
         viewMode={viewMode}
         onToggleView={() => setViewMode((v) => (v === "desktop" ? "mobile" : "desktop"))}
       />

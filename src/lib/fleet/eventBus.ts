@@ -24,6 +24,20 @@ export interface VehicleLocationUpdate {
   lastCrossedStop?: { name: string; sequence: number; crossedAt: number } | null;
   nextStop?: { name: string; sequence: number; etaMinutes: number; distanceMeters: number } | null;
   progressPercent?: number;
+  // ── Physics-enriched fields (NEXUS live tracking overhaul) ──────────────
+  /** Bus state machine value: MOVING | SLOWING | STOPPED | ACCELERATING | GPS_LOST | NETWORK_TRACKING | STALE_LOCATION | OFFLINE */
+  state?: string;
+  /** Confidence classification: HIGH | MEDIUM | LOW | STALE | OFFLINE */
+  confidence?: string;
+  /** Active provider: GPS | NETWORK | CACHED | SIMULATED */
+  provider?: string;
+  /** Age of the GPS fix in seconds (server receive time − GPS timestamp). */
+  locationAgeS?: number;
+  /** Anomaly (informational — fix was accepted but flagged). */
+  anomaly?: { type: string; message: string } | null;
+  /** True if the fix was rejected as anomalous. The lat/lng/speed/heading
+   *  fields will reflect the *previous* valid position when this is true. */
+  rejected?: boolean;
 }
 
 export interface StopCrossedNotification {

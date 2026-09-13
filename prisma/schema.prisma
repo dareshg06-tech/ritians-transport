@@ -41,6 +41,7 @@ model Vehicle {
   locations     VehicleLocation[]
   sessions      TrackingSession[]
   stopCrossings StopCrossing[]
+  anomalies     BusLocationAnomaly[]
 
   @@index([status])
   @@index([routeNo])
@@ -63,12 +64,16 @@ model VehicleLocation {
 }
 
 model TrackingSession {
-  id         String    @id @default(cuid())
-  vehicleId  String
-  startedAt  DateTime  @default(now())
-  stoppedAt  DateTime?
-  status     String    @default("active") // active | stopped
-  vehicle    Vehicle   @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  id              String    @id @default(cuid())
+  vehicleId       String
+  startedAt       DateTime  @default(now())
+  stoppedAt       DateTime?
+  status          String    @default("active") // active | stopped
+  // Real-time physics tracking extensions (NEXUS live tracking overhaul)
+  routeNo         String?   // denormalized for replay queries
+  driverId        String?   // FK to User (optional)
+  plannedRouteJson String?  // snapshot of route polyline at start
+  vehicle         Vehicle   @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
 
   @@index([vehicleId, startedAt])
   @@index([status])
@@ -83,10 +88,37 @@ model StopCrossing {
   stopLng     Float
   crossedAt   DateTime @default(now())
   sequence    Int
+  // Real-time physics tracking extensions (NEXUS live tracking overhaul)
+  // For stop *dwell* detection — when the bus stops AT a stop, this records
+  // how long it stayed there. `crossedAt` becomes the entry time; `exitedAt`
+  // is when the bus resumed movement.
+  exitedAt    DateTime?
+  stopDurationS Int?
   vehicle     Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
 
   @@index([vehicleId, crossedAt])
   @@index([routeNo, sequence])
+}
+
+// Real-time physics tracking — GPS anomaly detection (teleport, out-of-order,
+// impossible acceleration, etc.) records. Used by the admin debug panel
+// to inspect suspicious telemetry.
+model BusLocationAnomaly {
+  id            String   @id @default(cuid())
+  vehicleId     String
+  type          String   // TELEPORT | DUPLICATE | OUT_OF_ORDER | IMPOSSIBLE_ACCELERATION | IMPOSSIBLE_HEADING_CHANGE | LOW_ACCURACY
+  message       String
+  latitude      Float?
+  longitude     Float?
+  speedKmh      Float?
+  headingDeg    Float?
+  accuracyM     Float?
+  rejected      Boolean  @default(false) // true = caller dropped the fix
+  detectedAt    DateTime @default(now())
+  vehicle       Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId, detectedAt])
+  @@index([type, detectedAt])
 }
 
 model Notification {

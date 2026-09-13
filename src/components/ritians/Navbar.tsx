@@ -10,12 +10,13 @@ interface NavbarProps {
   onTabClick: (tab: "student" | "admin" | "driver" | "return") => void;
   onOpenTracking: () => void;
   onOpenDriverGps: () => void;
+  onOpenPhysicsDebug?: () => void;
   viewMode: ViewMode;
   onToggleView: () => void;
 }
 
 export function Navbar({
-  activeTab, onTabClick, onOpenTracking, onOpenDriverGps, viewMode, onToggleView,
+  activeTab, onTabClick, onOpenTracking, onOpenDriverGps, onOpenPhysicsDebug, viewMode, onToggleView,
 }: NavbarProps) {
   const { session, logout } = useAuth();
   const [clock, setClock] = useState("--:--:--");
@@ -77,6 +78,11 @@ export function Navbar({
             <button className="rt-tab-btn driver-ext" onClick={onOpenDriverGps} title="Open Driver GPS Portal">
               <i className="fas fa-location-arrow" /><span>Driver GPS</span>
             </button>
+            {onOpenPhysicsDebug && (
+              <button className="rt-tab-btn driver-ext" onClick={onOpenPhysicsDebug} title="Physics Engine Debug Panel">
+                <i className="fas fa-microchip" /><span>Physics Debug</span>
+              </button>
+            )}
           </div>
           <div className="rt-clock">{clock}</div>
           <div className="rt-auth-chip">

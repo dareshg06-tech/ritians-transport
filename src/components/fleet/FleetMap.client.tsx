@@ -6,6 +6,13 @@ import "leaflet/dist/leaflet.css";
 import type { Coord } from "@/lib/ritians/data";
 import { RIT_CAMPUS_COORDS } from "@/lib/ritians/data";
 import { getRouteStopsWithCoords } from "@/lib/ritians/fleet";
+import {
+  planMarkerInterpolation,
+  sampleInterpolation,
+  lerpCoord,
+  lerpHeading,
+  type MarkerInterpolationState,
+} from "@/lib/fleet/physics";
 
 export interface MapVehicle {
   id: string;
@@ -43,6 +50,13 @@ export function FleetMap({
   const originDestLayerRef = useRef<L.LayerGroup | null>(null);
   const onSelectRef = useRef(onSelectVehicle);
   useEffect(() => { onSelectRef.current = onSelectVehicle; }, [onSelectVehicle]);
+
+  // Per-marker interpolation state — drives the requestAnimationFrame loop
+  // so each marker smoothly moves from its previous position to the new
+  // target at a rate derived from the actual bus speed.
+  const interpRef = useRef<Map<string, MarkerInterpolationState>>(new Map());
+  const vehiclesRef = useRef(vehicles);
+  useEffect(() => { vehiclesRef.current = vehicles; }, [vehicles]);
 
   // Init map once
   useEffect(() => {
@@ -126,57 +140,148 @@ export function FleetMap({
     });
   }
 
-  // Update bus markers
+  // Build popup HTML for a bus marker — shows live state, speed, ETA, accuracy
+  function buildPopupHtml(v: MapVehicle, isLive: boolean): string {
+    return `
+      <div style="min-width: 240px; color: #1a1d2a;">
+        <div style="font-weight: 700; font-size: 14px; margin-bottom: 6px;">
+          ${v.vehicleName} <span style="font-family: monospace; font-size: 11px; opacity: 0.6;">${v.vehicleNumber}</span>
+        </div>
+        <div style="font-size: 12px; margin-bottom: 4px;">Status: <strong style="color: ${isLive ? "#10b981" : "#ef4444"}; text-transform: uppercase; letter-spacing: 0.05em;">${isLive ? "🚌 MOVING" : "OFF"}</strong></div>
+        ${v.speed !== undefined && isLive ? `<div style="font-size: 12px; margin-bottom: 4px;">Speed: <span style="font-family: monospace; color: #06b6d4; font-weight: 600;">${Math.round(v.speed)} km/h</span></div>` : ""}
+        ${isLive ? `<div style="font-size: 12px; margin-bottom: 4px;">Updated: <span style="color: #10b981; font-weight: 600;">${v.lastSeenAt ? timeAgo(new Date(v.lastSeenAt)) : "just now"}</span></div>` : ""}
+        ${v.heading != null && isLive ? `<div style="font-size: 12px; margin-bottom: 4px;">Heading: <span style="font-family: monospace; color: #f59e0b; font-weight: 600;">${Math.round(v.heading)}°</span></div>` : ""}
+        <div style="font-size: 11px; color: #64748b; margin-top: 6px;">${v.coords.lat.toFixed(4)}, ${v.coords.lng.toFixed(4)}</div>
+        ${v.routeNo ? `<div style="font-size: 11px; color: #64748b; margin-top: 2px;">Route: <span style="font-family: monospace; font-weight: 600; color: #f59e0b;">${v.routeNo}</span></div>` : ""}
+      </div>
+    `;
+  }
+
+  // Update bus markers — plan interpolation for each marker based on
+  // the actual reported speed. The requestAnimationFrame loop below
+  // samples the interpolation every frame and calls setLatLng, so the
+  // marker visually moves smoothly between fixes instead of jumping.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     const existing = markersRef.current;
+    const interps = interpRef.current;
 
     // Remove markers no longer present
     for (const [id, marker] of existing.entries()) {
       if (!vehicles.find((v) => v.id === id)) {
         map.removeLayer(marker);
         existing.delete(id);
+        interps.delete(id);
       }
     }
 
     for (const v of vehicles) {
-      const latlng: L.LatLngExpression = [v.coords.lat, v.coords.lng];
+      const targetLatLng: L.LatLngExpression = [v.coords.lat, v.coords.lng];
       let marker = existing.get(v.id);
       const isSelected = v.id === selectedVehicleId;
       const isLive = v.status === "live" || v.status === "tracking";
-      const icon = buildBusIcon(isSelected, isLive, v.heading);
 
-      const popupHtml = `
-        <div style="min-width: 220px; color: #1a1d2a;">
-          <div style="font-weight: 700; font-size: 14px; margin-bottom: 6px;">
-            ${v.vehicleName} <span style="font-family: monospace; font-size: 11px; opacity: 0.6;">${v.vehicleNumber}</span>
-          </div>
-          <div style="font-size: 12px; margin-bottom: 4px;">Status: <strong style="color: ${isLive ? "#10b981" : "#ef4444"}; text-transform: uppercase; letter-spacing: 0.05em;">${isLive ? "LIVE" : "OFF"}</strong></div>
-          ${v.speed !== undefined && isLive ? `<div style="font-size: 12px; margin-bottom: 4px;">Speed: <span style="font-family: monospace; color: #06b6d4; font-weight: 600;">${Math.round(v.speed)} km/h</span></div>` : ""}
-          ${isLive ? `<div style="font-size: 12px; margin-bottom: 4px;">Updated: <span style="color: #10b981; font-weight: 600;">${v.lastSeenAt ? timeAgo(new Date(v.lastSeenAt)) : "just now"}</span></div>` : ""}
-          <div style="font-size: 11px; color: #64748b; margin-top: 6px;">${v.coords.lat.toFixed(4)}, ${v.coords.lng.toFixed(4)}</div>
-          ${v.routeNo ? `<div style="font-size: 11px; color: #64748b; margin-top: 2px;">Route: <span style="font-family: monospace; font-weight: 600; color: #f59e0b;">${v.routeNo}</span></div>` : ""}
-        </div>
-      `;
+      // Plan interpolation from the marker's current position to the new target.
+      // The duration is derived from distance / actual_speed (NOT a fixed duration).
+      // Acceptance test 16: animation duration = distance_to_target / actual_speed
+      if (marker) {
+        const currentLatLng = marker.getLatLng();
+        const fromCoord: Coord = { lat: currentLatLng.lat, lng: currentLatLng.lng };
+        const toCoord: Coord = v.coords;
+        // Look up previous heading for smooth rotation
+        const prevInterp = interps.get(v.id);
+        const fromHeading = prevInterp?.toHeading ?? v.heading ?? null;
+        const interp = planMarkerInterpolation(
+          fromCoord,
+          toCoord,
+          fromHeading,
+          v.heading ?? null,
+          v.speed ?? 0
+        );
+        if (interp) {
+          interps.set(v.id, interp);
+        } else if (interps.has(v.id) === false) {
+          // No movement needed — marker is essentially at target
+          marker.setLatLng(targetLatLng);
+        }
+      }
+
+      const icon = buildBusIcon(isSelected, isLive, v.heading);
+      const popupHtml = buildPopupHtml(v, isLive);
 
       if (!marker) {
-        marker = L.marker(latlng, { icon, zIndexOffset: 1000 }).addTo(map);
+        marker = L.marker(targetLatLng, { icon, zIndexOffset: 1000 }).addTo(map);
         marker.on("click", () => onSelectRef.current(v.id));
         marker.bindPopup(popupHtml);
         existing.set(v.id, marker);
       } else {
-        marker.setLatLng(latlng);
         marker.setIcon(icon);
         marker.setPopupContent(popupHtml);
       }
-      if (isSelected && centerOnSelected) {
-        // Follow the bus — center on it with high zoom (like shared project)
-        map.setView(latlng, Math.max(map.getZoom(), 14), { animate: true });
-        marker.openPopup();
+    }
+  }, [vehicles, selectedVehicleId]);
+
+  // requestAnimationFrame loop — sample the interpolation state for each
+  // marker every frame and call setLatLng with the interpolated position.
+  // This produces smooth sub-second movement between fixes.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    let raf = 0;
+
+    const loop = () => {
+      const now = performance.now();
+      for (const [id, interp] of interpRef.current.entries()) {
+        const marker = markersRef.current.get(id);
+        if (!marker) {
+          interpRef.current.delete(id);
+          continue;
+        }
+        const { coords, heading, t } = sampleInterpolation(interp, now);
+        marker.setLatLng([coords.lat, coords.lng]);
+
+        // Update icon heading if we have a heading
+        const v = vehiclesRef.current.find((x) => x.id === id);
+        if (v) {
+          const isSelected = v.id === selectedVehicleId;
+          const isLive = v.status === "live" || v.status === "tracking";
+          // Use the interpolated heading for smooth rotation
+          if (heading != null) {
+            const icon = buildBusIcon(isSelected, isLive, heading);
+            marker.setIcon(icon);
+          }
+        }
+
+        // Center on selected marker if centerOnSelected is true
+        if (v?.selected && centerOnSelected && t < 1) {
+          map.setView([coords.lat, coords.lng], Math.max(map.getZoom(), 14), { animate: false });
+        }
+
+        // If interpolation finished, remove it
+        if (t >= 1) {
+          interpRef.current.delete(id);
+        }
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [centerOnSelected, selectedVehicleId]);
+
+  // Open popup on selected marker when selection changes
+  useEffect(() => {
+    if (!selectedVehicleId || !centerOnSelected) return;
+    const marker = markersRef.current.get(selectedVehicleId);
+    if (marker) {
+      marker.openPopup();
+      const v = vehicles.find((x) => x.id === selectedVehicleId);
+      if (v) {
+        const map = mapRef.current;
+        if (map) map.setView([v.coords.lat, v.coords.lng], Math.max(map.getZoom(), 14), { animate: true });
       }
     }
-  }, [vehicles, selectedVehicleId, centerOnSelected]);
+  }, [selectedVehicleId, centerOnSelected, vehicles]);
 
   // Draw route line + origin/destination markers + boarding stops
   useEffect(() => {

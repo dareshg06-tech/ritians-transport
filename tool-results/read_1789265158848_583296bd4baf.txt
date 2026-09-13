@@ -1,0 +1,602 @@
+   301→    if (stops.length < 2) return;
+   302→    const coordsList: Coord[] = stops.map((s) => s.coords || vehicle.coords);
+   303→    coordsList[coordsList.length - 1] = RIT_CAMPUS_COORDS;
+   304→    segIdxRef.current = 0;
+   305→    progRef.current = 0;
+   306→
+   307→    const startPos = coordsList[0];
+   308→    const initialData: DriverGPSData = {
+   309→      latitude: startPos.lat,
+   310→      longitude: startPos.lng,
+   311→      accuracy: 3, // High accuracy simulated GPS — ±3m (was 8)
+   312→      speed: 0,
+   313→      heading: null,
+   314→      altitude: 30,
+   315→      timestamp: Date.now(),
+   316→    };
+   317→    setGps(initialData);
+   318→    postLocation(initialData, true);
+   319→
+   320→    setTimeout(() => {
+   321→      // Track previous simulated position so we can compute the actual speed
+   322→      // from the distance moved per tick (rather than just a sine wave).
+   323→      // Initialize with the starting position so the first delta isn't huge.
+   324→      let prevSimPos: { lat: number; lng: number; t: number } = { lat: startPos.lat, lng: startPos.lng, t: Date.now() };
+   325→      let prevTickTime = Date.now();
+   326→      // Target speed for the simulated bus (km/h). We compute the progress
+   327→      // per tick dynamically based on the segment length so the bus always
+   328→      // moves at ~25 km/h regardless of whether the segment is 1km or 10km.
+   329→      const TARGET_SPEED_KMH = 25;
+   330→      // Update every 1 second (was 2s) — smoother movement, more "real-time" feel
+   331→      simIntervalRef.current = setInterval(() => {
+   332→        const segIdx = segIdxRef.current;
+   333→        const a = coordsList[segIdxRef.current];
+   334→        const b = coordsList[Math.min(segIdxRef.current + 1, coordsList.length - 1)];
+   335→
+   336→        // Compute the segment length in meters
+   337→        const R = 6371000;
+   338→        const toRad = (d: number) => (d * Math.PI) / 180;
+   339→        const segDLat = toRad(b.lat - a.lat);
+   340→        const segDLng = toRad(b.lng - a.lng);
+   341→        const segH = Math.sin(segDLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(segDLng / 2) ** 2;
+   342→        const segLen = 2 * R * Math.asin(Math.sqrt(segH)); // meters
+   343→
+   344→        // Compute progress per tick so the bus moves at ~25 km/h:
+   345→        // distance_per_tick = TARGET_SPEED_KMH * 1000 / 3600 * dt = ~6.94 m/s
+   346→        // progress_per_tick = distance_per_tick / segLen
+   347→        const now = Date.now();
+   348→        const dt = Math.max(0.1, (now - prevTickTime) / 1000); // seconds, min 0.1s
+   349→        prevTickTime = now;
+   350→        const distancePerTick = (TARGET_SPEED_KMH * 1000 / 3600) * dt; // meters
+   351→        const progressPerTick = segLen > 0 ? distancePerTick / segLen : 0.015;
+   352→
+   353→        // Add gentle variation in speed (±5 km/h) by adjusting progress ±20%
+   354→        const variation = 1 + Math.sin(now / 12000) * 0.2;
+   355→        const prog = progRef.current + progressPerTick * variation;
+   356→        if (prog >= 1) {
+   357→          progRef.current = 0;
+   358→          segIdxRef.current = Math.min(segIdx + 1, coordsList.length - 2);
+   359→        } else {
+   360→          progRef.current = prog;
+   361→        }
+   362→        const lat = a.lat + (b.lat - a.lat) * progRef.current;
+   363→        const lng = a.lng + (b.lng - a.lng) * progRef.current;
+   364→
+   365→        // Compute actual speed from distance moved since the last tick.
+   366→        // This guarantees the displayed speed matches the visible movement
+   367→        // of the bus icon on the map.
+   368→        const dLat = toRad(lat - prevSimPos.lat);
+   369→        const dLng = toRad(lng - prevSimPos.lng);
+   370→        const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(prevSimPos.lat)) * Math.cos(toRad(lat)) * Math.sin(dLng / 2) ** 2;
+   371→        const dist = 2 * R * Math.asin(Math.sqrt(h));
+   372→        // m/s → km/h
+   373→        const baseSpeed = (dist / dt) * 3.6;
+   374→        // Clamp to a realistic city bus speed range: 0-45 km/h
+   375→        const speed = Math.max(0, Math.min(45, baseSpeed));
+   376→        prevSimPos = { lat, lng, t: now };
+   377→
+   378→        const heading = Math.atan2(b.lng - lng, b.lat - lat) * 180 / Math.PI;
+   379→
+   380→        const data: DriverGPSData = {
+   381→          latitude: lat,
+   382→          longitude: lng,
+   383→          // Higher accuracy: ±3-5m (was ±8-12m) — looks like real high-accuracy GPS
+   384→          accuracy: 3 + Math.random() * 2,
+   385→          speed,
+   386→          heading: heading < 0 ? heading + 360 : heading,
+   387→          altitude: 30 + Math.random() * 10,
+   388→          timestamp: now,
+   389→        };
+   390→        setGps(data);
+   391→        postLocation(data, true);
+   392→      }, 1000);
+   393→    }, 3000); // 3 second delay before bus starts moving (was 4s)
+   394→  };
+   395→
+   396→  const startSharing = () => {
+   397→    if (!vehicle) { show("Select your route first", "error"); return; }
+   398→    if (!dbVehicleId) { show("Vehicle not found in database. Try again.", "error"); return; }
+   399→    setError(null);
+   400→    setSharing(true);
+   401→    setTripStartTime(Date.now());
+   402→    setGps(null);
+   403→
+   404→    fetch("/api/tracking/start", {
+   405→      method: "POST",
+   406→      headers: { "Content-Type": "application/json" },
+   407→      body: JSON.stringify({ vehicleId: dbVehicleId }),
+   408→    }).catch(() => {});
+   409→
+   410→    if (navigator.geolocation) {
+   411→      // Always enable high accuracy (GPS satellite) regardless of source —
+   412→      // network source just means we tolerate lower accuracy, but we still
+   413→      // request the best possible fix. maximumAge: 0 means always get fresh
+   414→      // position; timeout: 5000 means fail fast if GPS is slow.
+   415→      watchIdRef.current = navigator.geolocation.watchPosition(handlePosition, handleError, {
+   416→        enableHighAccuracy: true,
+   417→        maximumAge: 0,
+   418→        timeout: 5000,
+   419→      });
+   420→    } else {
+   421→      setError("Geolocation not supported. Using simulated GPS data.");
+   422→      setUsingSimulated(true);
+   423→      startSimulatedGPS();
+   424→    }
+   425→    show("Live location sharing started");
+   426→  };
+   427→
+   428→  const stopSharing = () => {
+   429→    if (watchIdRef.current != null) {
+   430→      navigator.geolocation.clearWatch(watchIdRef.current);
+   431→      watchIdRef.current = null;
+   432→    }
+   433→    if (simIntervalRef.current) {
+   434→      clearInterval(simIntervalRef.current);
+   435→      simIntervalRef.current = null;
+   436→    }
+   437→    // Clear the last position so the next session computes speed/heading fresh
+   438→    lastPosRef.current = null;
+   439→    recentSpeedsRef.current = [];
+   440→    lastUpdateTsRef.current = 0;
+   441→    setSharing(false);
+   442→    setTripStartTime(null);
+   443→    setGps(null);
+   444→    setUsingSimulated(false);
+   445→    setError(null);
+   446→    if (dbVehicleId) {
+   447→      fetch("/api/tracking/stop", {
+   448→        method: "POST",
+   449→        headers: { "Content-Type": "application/json" },
+   450→        body: JSON.stringify({ vehicleId: dbVehicleId }),
+   451→      }).catch(() => {});
+   452→    }
+   453→    show("Location sharing stopped", "info");
+   454→  };
+   455→
+   456→  useEffect(() => {
+   457→    return () => {
+   458→      if (watchIdRef.current != null) navigator.geolocation.clearWatch(watchIdRef.current);
+   459→      if (simIntervalRef.current) clearInterval(simIntervalRef.current);
+   460→    };
+   461→  }, []);
+   462→
+   463→  const tripDuration = tripStartTime ? Math.floor((Date.now() - tripStartTime) / 60000) : 0;
+   464→
+   465→  return (
+   466→    <div className="space-y-3">
+   467→      <div className="flex items-center justify-between gap-3 pt-1 pb-2">
+   468→        <div className="min-w-0">
+   469→          <div className="text-[10px] uppercase tracking-widest text-amber-400 font-bold">Driver Mode</div>
+   470→          <h2 className="text-lg font-bold text-white leading-tight mt-0.5 truncate">Broadcast your GPS</h2>
+   471→          <div className="text-[10px] text-slate-500">Pushes live location every 2 seconds to passengers</div>
+   472→        </div>
+   473→        <div className="flex items-center gap-2 flex-shrink-0">
+   474→          <span className={`inline-flex items-center justify-center rounded-md border px-2 py-0.5 text-xs font-medium gap-1.5 ${
+   475→            sharing
+   476→              ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+   477→              : "border-slate-600 bg-slate-700/30 text-slate-400"
+   478→          }`}>
+   479→            <i className={`fas fa-circle text-[6px] ${sharing ? "animate-pulse" : ""}`} />
+   480→            {sharing ? "BROADCASTING" : "IDLE"}
+   481→          </span>
+   482→          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center text-white text-sm font-bold">
+   483→            D
+   484→          </div>
+   485→        </div>
+   486→      </div>
+   487→
+   488→      {/* Route info banner */}
+   489→      {vehicle && (
+   490→        <div className="rounded-xl px-3.5 py-2.5 border flex items-center gap-3 border-amber-500/30 bg-amber-500/10 text-xs">
+   491→          <i className="fas fa-bus text-amber-400" />
+   492→          <span className="text-amber-200 flex-1 min-w-0 truncate">
+   493→            <strong>BUS {String(vehicle.no).padStart(2, "0")}</strong> · {vehicle.routeName} → RIT Campus
+   494→          </span>
+   495→          {dbVehicleId && <span className="text-[10px] text-slate-500 font-mono">ID: {dbVehicleId.slice(-6)}</span>}
+   496→        </div>
+   497→      )}
+   498→
+   499→      {/* Info alert */}
+   500→      <div className="rounded-xl px-3.5 py-3 border border-[#1f2538] bg-[#10131f] text-[11px] text-slate-400 flex items-start gap-2">
+   501→        <i className="fas fa-circle-info text-cyan-400 mt-0.5" />
+   502→        <span>Your location is only visible while tracking is active. It auto-expires after <strong className="text-slate-200">60 seconds</strong> of inactivity.</span>
+   503→      </div>
+   504→
+   505→      {/* Simulated GPS notice */}
+   506→      {usingSimulated && (
+   507→        <div className="rounded-xl px-3.5 py-2.5 border border-amber-500/30 bg-amber-500/10 text-xs text-amber-200 flex items-center gap-2">
+   508→          <i className="fas fa-flask" /> SIMULATED GPS — Real GPS unavailable. Position simulated along route.
+   509→        </div>
+   510→      )}
+   511→
+   512→      {/* Route selector */}
+   513→      <div className="relative">
+   514→        <i className="fas fa-bus absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 flex items-center justify-center text-[12px]" />
+   515→        <select
+   516→          value={selectedRoute}
+   517→          onChange={(e) => setSelectedRoute(e.target.value)}
+   518→          disabled={sharing}
+   519→          className="w-full pl-10 pr-10 py-3 bg-[#0a0d18] border border-[#1a2032] text-slate-100 rounded-xl text-sm focus:outline-none focus:border-amber-500/40 appearance-none cursor-pointer disabled:opacity-60"
+   520→        >
+   521→          <option value="">Select Your Route</option>
+   522→          {ALL_ROUTES.map((r) => (
+   523→            <option key={r.routeNo} value={r.routeNo}>
+   524→              BUS {String(r.no).padStart(2, "0")} — {r.routeName}
+   525→            </option>
+   526→          ))}
+   527→        </select>
+   528→        <i className="fas fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-[10px] pointer-events-none" />
+   529→      </div>
+   530→
+   531→      {/* Position source */}
+   532→      {!sharing && (
+   533→        <div className="grid grid-cols-2 gap-2">
+   534→          <button
+   535→            onClick={() => setPositionSource("gps")}
+   536→            className={`text-left p-3 rounded-xl border transition-all ${
+   537→              positionSource === "gps"
+   538→                ? "border-cyan-500/40 bg-cyan-500/10"
+   539→                : "border-[#1a2032] bg-[#10131f] hover:border-[#2a3252]"
+   540→            }`}
+   541→          >
+   542→            <i className="fas fa-satellite block text-base mb-1 text-cyan-400" />
+   543→            <div className={`text-[12px] font-semibold ${positionSource === "gps" ? "text-cyan-300" : "text-slate-100"}`}>GPS</div>
+   544→            <div className="text-[10px] text-slate-500">High accuracy</div>
+   545→          </button>
+   546→          <button
+   547→            onClick={() => setPositionSource("network")}
+   548→            className={`text-left p-3 rounded-xl border transition-all ${
+   549→              positionSource === "network"
+   550→                ? "border-cyan-500/40 bg-cyan-500/10"
+   551→                : "border-[#1a2032] bg-[#10131f] hover:border-[#2a3252]"
+   552→            }`}
+   553→          >
+   554→            <i className="fas fa-tower-broadcast block text-base mb-1 text-cyan-400" />
+   555→            <div className={`text-[12px] font-semibold ${positionSource === "network" ? "text-cyan-300" : "text-slate-100"}`}>Network</div>
+   556→            <div className="text-[10px] text-slate-500">Cell / Wi-Fi</div>
+   557→          </button>
+   558→        </div>
+   559→      )}
+   560→
+   561→      {/* Start/Stop button */}
+   562→      {!sharing ? (
+   563→        <button
+   564→          onClick={startSharing}
+   565→          disabled={!dbVehicleId}
+   566→          className="w-full py-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all bg-gradient-to-br from-amber-500 to-amber-600 text-white shadow-lg shadow-amber-500/20 hover:from-amber-400 hover:to-amber-500 disabled:opacity-50 disabled:cursor-not-allowed"
+   567→        >
+   568→          <i className="fas fa-location-dot" /> Start Sharing Location
+   569→        </button>
+   570→      ) : (
+   571→        <button
+   572→          onClick={stopSharing}
+   573→          className="w-full py-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all bg-gradient-to-br from-rose-500 to-rose-600 text-white shadow-lg shadow-rose-500/20 hover:from-rose-400 hover:to-rose-500"
+   574→        >
+   575→          <i className="fas fa-stop" /> Stop Sharing Location
+   576→        </button>
+   577→      )}
+   578→
+   579→      {/* Error message */}
+   580→      {error && !usingSimulated && (
+   581→        <div className="rounded-xl px-3.5 py-3 border border-rose-500/30 bg-rose-500/10 text-xs text-rose-300 flex items-start gap-2">
+   582→          <i className="fas fa-triangle-exclamation mt-0.5" />
+   583→          <div>{error}</div>
+   584→        </div>
+   585→      )}
+   586→
+   587→      {/* GPS telemetry */}
+   588→      {sharing && (
+   589→        <div className="rounded-2xl border border-[#1f2538] bg-[#10131f] p-3.5">
+   590→          <div className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-2.5 flex items-center gap-2">
+   591→            <i className="fas fa-satellite-dish text-cyan-400" /> GPS Telemetry
+   592→          </div>
+   593→          <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[11px]">
+   594→            <div className="flex items-center justify-between">
+   595→              <span className="text-slate-500">Status</span>
+   596→              <span className={gps ? "text-emerald-400 font-semibold" : "text-slate-500"}>
+   597→                {gps ? (usingSimulated ? "● Sim" : "● Live") : "idle"}
+   598→              </span>
+   599→            </div>
+   600→            <div className="flex items-center justify-between">
+   601→              <span className="text-slate-500">Source</span>
+   602→              <span className="text-cyan-300 font-medium">
+   603→                {usingSimulated ? "Simulated" : positionSource === "gps" ? "Satellite" : "Network"}
+   604→              </span>
+   605→            </div>
+   606→            <div className="flex items-center justify-between">
+   607→              <span className="text-slate-500">Latitude</span>
+   608→              <span className={`font-mono ${gps ? "text-slate-100" : "text-slate-500"}`}>
+   609→                {gps ? gps.latitude.toFixed(6) : "—"}
+   610→              </span>
+   611→            </div>
+   612→            <div className="flex items-center justify-between">
+   613→              <span className="text-slate-500">Longitude</span>
+   614→              <span className={`font-mono ${gps ? "text-slate-100" : "text-slate-500"}`}>
+   615→                {gps ? gps.longitude.toFixed(6) : "—"}
+   616→              </span>
+   617→            </div>
+   618→            <div className="flex items-center justify-between">
+   619→              <span className="text-slate-500">Speed</span>
+   620→              <span className={`font-mono ${gps && (gps.speed ?? 0) > 0 ? "text-amber-300" : "text-slate-500"}`}>
+   621→                {gps ? `${Math.round(gps.speed ?? 0)} km/h` : "—"}
+   622→              </span>
+   623→            </div>
+   624→            <div className="flex items-center justify-between">
+   625→              <span className="text-slate-500">Heading</span>
+   626→              <span className={`font-mono ${gps?.heading != null ? "text-slate-100" : "text-slate-500"}`}>
+   627→                {gps?.heading != null ? `${Math.round(gps.heading)}°` : "—"}
+   628→              </span>
+   629→            </div>
+   630→            <div className="flex items-center justify-between">
+   631→              <span className="text-slate-500">Accuracy</span>
+   632→              <span className={`font-mono ${gps ? "text-emerald-300" : "text-slate-500"}`}>
+   633→                {gps ? `±${Math.round(gps.accuracy)} m` : "—"}
+   634→              </span>
+   635→            </div>
+   636→            <div className="flex items-center justify-between">
+   637→              <span className="text-slate-500">Trip</span>
+   638→              <span className={tripStartTime ? "text-emerald-300 font-medium" : "text-slate-500"}>
+   639→                {tripStartTime ? `${tripDuration}m` : "—"}
+   640→              </span>
+   641→            </div>
+   642→          </div>
+   643→          <div className="mt-2.5 pt-2.5 border-t border-[#1a2032] text-[10px] text-slate-500">
+   644→            Last update: {gps ? new Date(gps.timestamp).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—"}
+   645→          </div>
+   646→        </div>
+   647→      )}
+   648→
+   649→      {/* Always-visible live map — when sharing, shows the bus moving in real
+   650→          time. When not sharing, shows a preview of the selected route so the
+   651→          driver can see where they'll be driving. */}
+   652→      {selectedRoute && (() => {
+   653→        const r = ALL_ROUTES.find((x) => x.routeNo === selectedRoute);
+   654→        if (!r) return null;
+   655→        // Use the live driver position from the parent (polled from /api/vehicles).
+   656→        // This is the SAME position the passenger-side map will see — so the driver
+   657→        // can verify their bus icon is actually moving on the map.
+   658→        const livePos = driverPositions[selectedRoute];
+   659→        // When sharing with real GPS, prefer the local gps state (freshest).
+   660→        // When sharing with simulated GPS, the gps state is also populated.
+   661→        // When not sharing, fall back to the route's starting coords.
+   662→        const currentCoords: Coord = livePos?.coords
+   663→          || (gps ? { lat: gps.latitude, lng: gps.longitude } : r.coords);
+   664→        const currentSpeed = livePos?.speed ?? (gps ? (gps.speed ?? 0) : 0);
+   665→        const currentHeading = livePos?.heading ?? (gps ? gps.heading : undefined);
+   666→        const isLive = sharing && !!livePos;
+   667→
+   668→        const mapVehicles: MapVehicle[] = [{
+   669→          id: selectedRoute,
+   670→          vehicleNumber: `BUS-${String(r.no).padStart(3, "0")}`,
+   671→          vehicleName: r.routeName,
+   672→          status: (sharing ? "tracking" : "idle") as "tracking" | "idle",
+   673→          coords: currentCoords,
+   674→          speed: currentSpeed,
+   675→          heading: currentHeading ?? undefined,
+   676→          lastSeenAt: livePos ? new Date(livePos.timestamp).toISOString() : (gps ? new Date(gps.timestamp).toISOString() : new Date().toISOString()),
+   677→          routeNo: selectedRoute,
+   678→          selected: true,
+   679→        }];
+   680→
+   681→        return (
+   682→          <div className="rounded-2xl border border-[#1f2538] bg-[#10131f] p-3">
+   683→            <div className="flex items-center justify-between mb-2">
+   684→              <div className="text-[10px] uppercase tracking-widest text-cyan-400 font-bold flex items-center gap-1.5">
+   685→                <i className="fas fa-map" /> {sharing ? "Live Bus Position" : "Route Preview"}
+   686→              </div>
+   687→              <div className="flex items-center gap-1.5">
+   688→                {isLive ? (
+   689→                  <span className="text-[10px] text-emerald-400 flex items-center gap-1">
+   690→                    <span
+   691→                      className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"
+   692→                      style={{ boxShadow: "0 0 6px #10b981" }}
+   693→                    />
+   694→                    LIVE · {tick}s ago
+   695→                  </span>
+   696→                ) : sharing ? (
+   697→                  <span className="text-[10px] text-amber-400 flex items-center gap-1">
+   698→                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+   699→                    STARTING…
+   700→                  </span>
+   701→                ) : (
+   702→                  <span className="text-[10px] text-slate-500 flex items-center gap-1">
+   703→                    <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+   704→                    PREVIEW
+   705→                  </span>
+   706→                )}
+   707→              </div>
+   708→            </div>
+   709→            <div style={{ height: isMobile ? 300 : 380 }} className="rounded-xl overflow-hidden relative">
+   710→              <FleetMap
+   711→                vehicles={mapVehicles}
+   712→                selectedVehicleId={selectedRoute}
+   713→                onSelectVehicle={() => {}}
+   714→                showRouteForVehicleId={selectedRoute}
+   715→                height="100%"
+   716→                centerOnSelected={sharing}
+   717→              />
+   718→            </div>
+   719→            <div className="mt-2 text-[10px] text-slate-500 flex items-center gap-3 flex-wrap">
+   720→              <span><i className="fas fa-location-dot text-cyan-400 mr-1" />{currentCoords.lat.toFixed(5)}, {currentCoords.lng.toFixed(5)}</span>
+   721→              {sharing && <span><i className="fas fa-gauge-high text-amber-400 mr-1" />{Math.round(currentSpeed)} km/h</span>}
+   722→              {sharing && currentHeading != null && <span><i className="fas fa-compass text-slate-400 mr-1" />{Math.round(currentHeading)}°</span>}
+   723→              {gps && <span><i className="fas fa-bullseye text-emerald-400 mr-1" />±{Math.round(gps.accuracy)} m</span>}
+   724→            </div>
+   725→          </div>
+   726→        );
+   727→      })()}
+   728→    </div>
+   729→  );
+   730→}
+   731→
+   732→// ============================================================================
+   733→// Route Detail (Find My Bus → clicked route)
+   734→// ============================================================================
+   735→function RouteDetailView({
+   736→  routeNo,
+   737→  buses,
+   738→  driverPositions,
+   739→  onBack,
+   740→  tick,
+   741→  isMobile = false,
+   742→}: {
+   743→  routeNo: string;
+   744→  buses: BusPosition[];
+   745→  driverPositions: Record<string, { coords: Coord; speed: number; heading: number | null; timestamp: number }>;
+   746→  onBack: () => void;
+   747→  tick: number;
+   748→  isMobile?: boolean;
+   749→}) {
+   750→  const [followToggle, setFollowToggle] = useState(true);
+   751→  const selRoute = ALL_ROUTES.find((r) => r.routeNo === routeNo);
+   752→  const selectedBus = buses.find((b) => b.routeNo === routeNo);
+   753→  if (!selRoute || !selectedBus) return null;
+   754→
+   755→  const busDistanceKm = haversineDist(selectedBus.coords, RIT_CAMPUS_COORDS) / 1000;
+   756→  const etaMin = Math.max(1, Math.round(busDistanceKm / (Math.max(selectedBus.speed, 20) / 60)));
+   757→  const isDriverGPS = !!driverPositions[routeNo];
+   758→  // Use getRouteStopsWithCoords so each stop has interpolated coordinates —
+   759→  // otherwise the boarding points tracker shows all stops at the same place.
+   760→  const stops = getRouteStopsWithCoords(routeNo);
+   761→  const r = selRoute;
+   762→  const coordsList: Coord[] = stops.map((s) => s.coords || r.coords);
+   763→  if (coordsList.length > 0) coordsList[coordsList.length - 1] = RIT_CAMPUS_COORDS;
+   764→  const currentPos = selectedBus.coords;
+   765→
+   766→  const crossedStops = new Set<number>();
+   767→  stops.forEach((s, i) => {
+   768→    const sc = s.coords || r.coords;
+   769→    const distStopToEnd = haversineDist(sc, RIT_CAMPUS_COORDS);
+   770→    if (haversineDist(currentPos, RIT_CAMPUS_COORDS) < distStopToEnd - 30) crossedStops.add(i);
+   771→  });
+   772→  const currentStopIdx = stops.findIndex((s) => {
+   773→    const sc = s.coords || r.coords;
+   774→    return haversineDist(currentPos, sc) < 150;
+   775→  });
+   776→
+   777→  const mapVehicles: MapVehicle[] = [
+   778→    {
+   779→      id: selectedBus.routeNo,
+   780→      vehicleNumber: `BUS-${String(selectedBus.no).padStart(3, "0")}`,
+   781→      vehicleName: selectedBus.routeName,
+   782→      status: isDriverGPS ? "tracking" as const : "live" as const,
+   783→      coords: selectedBus.coords,
+   784→      speed: selectedBus.speed,
+   785→      heading: driverPositions[routeNo]?.heading ?? undefined,
+   786→      lastSeenAt: driverPositions[routeNo]
+   787→        ? new Date(driverPositions[routeNo].timestamp).toISOString()
+   788→        : new Date().toISOString(),
+   789→      routeNo: selectedBus.routeNo,
+   790→      selected: true,
+   791→    },
+   792→  ];
+   793→
+   794→  const startLocation = stops.length > 0 ? stops[0].stop : r.routeName;
+   795→  const endLocation = stops.length > 0 ? stops[stops.length - 1].stop : "RIT Campus";
+   796→  const crossedCount = crossedStops.size;
+   797→  const totalStops = stops.length;
+   798→  const progressPct = totalStops > 0 ? Math.round((crossedCount / totalStops) * 100) : 0;
+   799→
+   800→  return (
+   801→    <div className="space-y-3">
+   802→      {/* Back button + route header */}
+   803→      <div className="flex items-center gap-3 pt-1 pb-2">
+   804→        <button
+   805→          onClick={onBack}
+   806→          className="flex-shrink-0 w-9 h-9 rounded-lg border border-[#1f2538] bg-[#10131f] text-slate-300 flex items-center justify-center hover:bg-[#161b2b] transition-colors"
+   807→          aria-label="Back to routes"
+   808→        >
+   809→          <i className="fas fa-chevron-left text-[12px]" />
+   810→        </button>
+   811→        <div className="flex-shrink-0 w-12 h-12 rounded-lg flex flex-col items-center justify-center bg-[#1a2032]">
+   812→          <span className="text-[10px] uppercase tracking-wider text-slate-500 leading-none">RTE</span>
+   813→          <span className="text-xs leading-tight text-amber-300 font-bold">{routeNo}</span>
+   814→        </div>
+   815→        <div className="flex-1 min-w-0">
+   816→          <h2 className="text-base font-bold text-white truncate">{startLocation} → RIT Campus</h2>
+   817→          <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500">
+   818→            <span className="flex items-center gap-1">
+   819→              <i className="fas fa-clock text-[10px]" /> {r.start}
+   820→            </span>
+   821→            <span className="flex items-center gap-1">
+   822→              <i className="fas fa-navigation text-[10px]" /> {routeDistanceKm(routeNo)} km
+   823→            </span>
+   824→            <span className="flex items-center gap-1">
+   825→              <i className="fas fa-gauge text-[10px]" /> ~{routeDurationLabel(routeNo)}
+   826→            </span>
+   827→          </div>
+   828→        </div>
+   829→      </div>
+   830→
+   831→      {/* Stats: distance + ETA + speed */}
+   832→      <div className="grid grid-cols-3 gap-2">
+   833→        <div className="rounded-xl border border-[#1f2538] bg-[#10131f] p-3">
+   834→          <div className="text-[9px] uppercase tracking-widest text-cyan-400 font-bold mb-1 flex items-center gap-1">
+   835→            <i className="fas fa-globe text-[10px]" /> Distance
+   836→          </div>
+   837→          <div className="text-sm font-bold text-white">{busDistanceKm.toFixed(1)}<span className="text-[10px] text-slate-500 font-normal ml-1">km</span></div>
+   838→          <div className="mt-1.5 h-[3px] bg-[#1a2032] rounded-full overflow-hidden">
+   839→            <div className="h-full bg-cyan-500 rounded-full transition-all" style={{ width: `${Math.min(100, busDistanceKm)}%` }} />
+   840→          </div>
+   841→        </div>
+   842→        <div className="rounded-xl border border-[#1f2538] bg-[#10131f] p-3">
+   843→          <div className="text-[9px] uppercase tracking-widest text-emerald-400 font-bold mb-1 flex items-center gap-1">
+   844→            <i className="fas fa-clock text-[10px]" /> ETA
+   845→          </div>
+   846→          <div className="text-sm font-bold text-white">
+   847→            {etaMin > 60 ? `${Math.floor(etaMin / 60)}h ${etaMin % 60}m` : `${etaMin}`}<span className="text-[10px] text-slate-500 font-normal ml-1">{etaMin > 60 ? "" : "min"}</span>
+   848→          </div>
+   849→          <div className="mt-1.5 h-[3px] bg-[#1a2032] rounded-full overflow-hidden">
+   850→            <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${Math.min(100, etaMin)}%` }} />
+   851→          </div>
+   852→        </div>
+   853→        <div className="rounded-xl border border-[#1f2538] bg-[#10131f] p-3">
+   854→          <div className="text-[9px] uppercase tracking-widest text-amber-400 font-bold mb-1 flex items-center gap-1">
+   855→            <i className="fas fa-gauge-high text-[10px]" /> Speed
+   856→          </div>
+   857→          <div className="text-sm font-bold text-white">{Math.round(selectedBus.speed)}<span className="text-[10px] text-slate-500 font-normal ml-1">km/h</span></div>
+   858→          <div className="mt-1.5 h-[3px] bg-[#1a2032] rounded-full overflow-hidden">
+   859→            <div className="h-full bg-amber-500 rounded-full transition-all" style={{ width: `${Math.min(100, (selectedBus.speed / 80) * 100)}%` }} />
+   860→          </div>
+   861→        </div>
+   862→      </div>
+   863→
+   864→      {/* Live Map */}
+   865→      <div className="rounded-2xl border border-[#1f2538] bg-[#10131f] p-3">
+   866→        <div className="flex items-center justify-between mb-2">
+   867→          <div className="text-[10px] uppercase tracking-widest text-cyan-400 font-bold flex items-center gap-1.5">
+   868→            <i className="fas fa-map" /> Live Map
+   869→          </div>
+   870→          <div className="flex items-center gap-2">
+   871→            <span className="text-[10px] text-slate-500">Follow</span>
+   872→            <button
+   873→              onClick={() => setFollowToggle(!followToggle)}
+   874→              className="relative w-9 h-5 rounded-full border-0 cursor-pointer transition-colors"
+   875→              style={{ background: followToggle ? "#06b6d4" : "#374151" }}
+   876→            >
+   877→              <span
+   878→                className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all"
+   879→                style={{ left: followToggle ? "18px" : "2px" }}
+   880→              />
+   881→            </button>
+   882→            <span className="text-[10px] text-emerald-400 flex items-center gap-1 ml-1">
+   883→              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" style={{ boxShadow: "0 0 6px #10b981" }} />
+   884→              LIVE · {tick}s
+   885→            </span>
+   886→          </div>
+   887→        </div>
+   888→        <div style={{ height: isMobile ? 320 : 440 }} className="rounded-xl overflow-hidden relative">
+   889→          <FleetMap
+   890→            vehicles={mapVehicles}
+   891→            selectedVehicleId={routeNo}
+   892→            onSelectVehicle={() => {}}
+   893→            showRouteForVehicleId={routeNo}
+   894→            height="100%"
+   895→            centerOnSelected={followToggle}
+   896→          />
+   897→        </div>
+   898→      </div>
+   899→
+   900→      {/* Boarding points tracker */}
+
+[showing lines 301-900 of 1411; use offset=901 with limit to continue reading]
